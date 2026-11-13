@@ -5,23 +5,57 @@ import io
 import os
 import re
 import wave
+from pathlib import Path
 from faster_whisper import WhisperModel
 from llama_cpp import Llama
 from piper import PiperVoice
 
 # ==========================================
-# 1. INITIALIZE OFFLINE COMPONENTS
+# 0. CONFIGURATION & PRE-SET LANGUAGE
 # ==========================================
+# Preset language for the robot: "vi" or "en"
+# Can be overridden via environment variable: export ROBOT_LANG=vi
+ROBOT_LANG = os.getenv("ROBOT_LANG", "vi").strip().lower()
+if ROBOT_LANG not in ("vi", "en"):
+    print(f"Warning: Unsupported ROBOT_LANG='{ROBOT_LANG}'. Defaulting to 'vi'.")
+    ROBOT_LANG = "vi"
+
+BASE_DIR = Path(__file__).resolve().parent
+MODELS_DIR = BASE_DIR / "models"
+
+# Language-specific Whisper paths (PhoWhisper for 'vi', tiny.en/base.en for 'en')
+WHISPER_MODEL_PATHS = {
+    "vi": MODELS_DIR / "whisper" / "vi",
+    "en": MODELS_DIR / "whisper" / "en",
+}
 
 VOICE_MODELS = {
-    "en": "./models/piper/en_US-lessac-medium.onnx",
-    "vi": "./models/piper/vi_VN-vais1000-medium.onnx",
+    "en": MODELS_DIR / "piper" / "en_US-lessac-medium.onnx",
+    "vi": MODELS_DIR / "piper" / "vi_VN-vais1000-medium.onnx",
 }
+
+# Initial context prompt to prime Whisper tokenizer for Vietnamese diacritics
+INITIAL_PROMPTS = {
+    "vi": "Xin chào, đây là cuộc trò chuyện bằng tiếng Việt có dấu đầy đủ.",
+    "en": "Hello, this is a spoken conversation in English.",
+}
+
+# Adaptive beam size:
+# - vi: beam_size=5 (essential for tonal accuracy)
+# - en: beam_size=2 or 3 (fast and accurate enough on English-dedicated models)
+BEAM_SIZES = {
+    "vi": 5,
+    "en": 2,
+}
+
+# ==========================================
+# 1. INITIALIZE OFFLINE COMPONENTS
+# ==========================================
 _piper_voice = None
 _piper_voice_language = None
 
 
-def get_piper_voice(language):
+def get_piper_voice(language=ROBOT_LANG):
     global _piper_voice, _piper_voice_language
 
     if language not in VOICE_MODELS:
@@ -29,17 +63,17 @@ def get_piper_voice(language):
 
     if language != _piper_voice_language:
         voice_path = VOICE_MODELS[language]
-        if not os.path.isfile(voice_path):
+        if not voice_path.is_file():
             raise FileNotFoundError(
                 f"Local Piper voice model not found at '{voice_path}'. "
-                "Place the model and its matching .onnx.json config in './models/piper'."
+                "Run 'python download_models.py' to download required voices."
             )
 
         _piper_voice = None
         _piper_voice_language = None
         gc.collect()
         print(f"Loading local Piper voice for '{language}'...")
-        _piper_voice = PiperVoice.load(voice_path)
+        _piper_voice = PiperVoice.load(str(voice_path))
         _piper_voice_language = language
 
     if _piper_voice is None:
@@ -47,7 +81,7 @@ def get_piper_voice(language):
     return _piper_voice
 
 
-def speak(text, language):
+def speak(text, language=ROBOT_LANG):
     print(f"\nRobot: {text}")
     try:
         voice = get_piper_voice(language)
@@ -68,161 +102,156 @@ def speak(text, language):
         print(f"TTS Error: {e}")
 
 
-def detect_language_choice(text):
-    words = set(re.findall(r"[a-z]+", text.casefold()))
-    wants_english = "english" in words
-    wants_vietnamese = "vietnamese" in words
-    if wants_english == wants_vietnamese:
-        return None
-    return "en" if wants_english else "vi"
-
-
-def select_chat_language():
-    while True:
-        speak(
-            "Say English to chat in English, or Vietnamese to chat in Vietnamese. "
-            "Please say the language name in English.",
-            "en",
-        )
-        audio = record_audio(duration=5)
-        if audio is None:
-            continue
-
-        selection = transcribe_audio(audio, language="en")
-        language = detect_language_choice(selection)
-        if language is not None:
-            print(f"Selected chat language: {language}")
-            return language
-
-        speak("I didn't catch that. Please say English or Vietnamese.", "en")
-
-
-# Define the path to your locally stored model folder
-LOCAL_MODEL_PATH = "./models/whisper-tiny"
-
-# Check if the local folder exists before loading
-if not os.path.exists(LOCAL_MODEL_PATH):
+def resolve_whisper_path(language):
+    target_path = WHISPER_MODEL_PATHS.get(language)
+    if target_path and target_path.is_dir() and (target_path / "model.bin").is_file():
+        return str(target_path)
     raise FileNotFoundError(
-        f"Local Whisper model directory not found at '{LOCAL_MODEL_PATH}'. "
-        "Please download the model files manually into this folder."
+        f"Whisper model directory not found for language '{language}'. "
+        f"Please run 'python download_models.py --lang {language}' first."
     )
 
-print("Loading local Whisper model from local disk (no download)...")
-# Pass the local directory path instead of a model name like "tiny"
-whisper_model = WhisperModel(
-    LOCAL_MODEL_PATH,
-    device="cpu",
-    compute_type="int8"
-)
 
-print("Loading local LLM (Llama 3.2 1B) with Metal GPU acceleration...")
-# n_gpu_layers=-1 utilizes your Mac M3's GPU
-try:
-    llm = Llama(
-        model_path="./models/llama-3.2-1b-instruct.Q4_K_M.gguf",
+def initialize_whisper(language=ROBOT_LANG):
+    model_path = resolve_whisper_path(language)
+    print(f"Loading local Whisper model for '{language}' from: {model_path}...")
+    return WhisperModel(
+        model_path,
+        device="cpu",
+        compute_type="int8",
+    )
+
+
+def initialize_llm():
+    llm_path = MODELS_DIR / "llama-3.2-1b-instruct.Q4_K_M.gguf"
+    if not llm_path.is_file():
+        raise FileNotFoundError(
+            f"LLM model not found at '{llm_path}'. Please run 'python download_models.py'."
+        )
+
+    print("Loading local LLM (Llama 3.2 1B)...")
+    return Llama(
+        model_path=str(llm_path),
         n_ctx=2048,
         n_threads=4,
-        n_gpu_layers=-1,  # -1 for Mac GPU (Change to 0 later when moving to Raspberry Pi 5)
-        verbose=False
+        n_gpu_layers=-1,  # -1 for Mac GPU; set to 0 when deploying to Raspberry Pi 5
+        verbose=False,
     )
-except Exception as e:
-    print(f"Failed to load LLM model. Check your model path! Error: {e}")
-    exit(1)
+
 
 # ==========================================
-# 2. DEFINE ROBOT PERSONALITY
+# 2. PERSONALITY & PROMPTS
 # ==========================================
 SYSTEM_PROMPTS = {
     "en": (
         "You are Sparky, a friendly, encouraging, and cute companion robot for kids. "
         "Always reply in English. Keep answers short (1-3 sentences maximum). "
-        "Never use formatting symbols, markdown, or bullet points."
+        "Never use formatting symbols, markdown, emojis, or bullet points."
     ),
     "vi": (
         "Bạn là Sparky, một người bạn robot thân thiện, luôn khích lệ và đáng yêu "
         "dành cho trẻ em. Luôn trả lời bằng tiếng Việt. Trả lời ngắn gọn "
-        "(tối đa 1-3 câu). Không dùng ký hiệu định dạng, Markdown hoặc gạch đầu dòng."
+        "(tối đa 1-3 câu). Không dùng ký hiệu định dạng, Markdown, biểu tượng cảm xúc hoặc gạch đầu dòng."
     ),
 }
 
 # ==========================================
-# 3. CORE FUNCTIONS
+# 3. CORE AUDIO & INFERENCE FUNCTIONS
 # ==========================================
 def record_audio(duration=5, sample_rate=16000):
     print("\n[Listening... Speak now]")
     try:
-        audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='float32')
+        audio_data = sd.rec(
+            int(duration * sample_rate),
+            samplerate=sample_rate,
+            channels=1,
+            dtype="float32",
+        )
         sd.wait()
         return audio_data.flatten()
     except Exception as e:
         print(f"Audio Recording Error: {e}")
         return None
 
-def transcribe_audio(audio_data, language=None):
+
+def transcribe_audio(whisper_model, audio_data, language=ROBOT_LANG):
     try:
+        beam_size = BEAM_SIZES.get(language, 5)
+        initial_prompt = INITIAL_PROMPTS.get(language, None)
+
         segments, info = whisper_model.transcribe(
-            audio_data, beam_size=1, language=language
+            audio_data,
+            beam_size=beam_size,
+            language=language,
+            initial_prompt=initial_prompt,
+            vad_filter=True,  # Filter out silence and noise hallucinations
         )
         text = " ".join([segment.text for segment in segments]).strip()
-        if language is None:
-            print(
-                f"Detected speech language: {info.language} "
-                f"({info.language_probability:.1%})"
-            )
         print(f"You said: {text}")
         return text
     except Exception as e:
         print(f"Transcription Error: {e}")
         return ""
 
-def generate_response(user_text, language):
+
+def generate_response(llm, user_text, language=ROBOT_LANG):
     try:
         response = llm.create_chat_completion(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPTS[language]},
-                {"role": "user", "content": user_text}
+                {"role": "user", "content": user_text},
             ],
             temperature=0.7,
-            max_tokens=150
+            max_tokens=150,
         )
-        return response["choices"][0]["message"]["content"].strip()
+        raw_text = response["choices"][0]["message"]["content"].strip()
+        # Clean markdown asterisks or quotes for clean speech
+        cleaned_text = re.sub(r"[\*\#\_`]", "", raw_text)
+        return cleaned_text
     except Exception as e:
         print(f"LLM Generation Error: {e}")
         if language == "vi":
             return "Ôi, mạch điện của mình bị rối mất rồi. Bạn nói lại nhé?"
         return "Oops! My circuits got tangled for a second. Can you say that again?"
 
+
 # ==========================================
 # 4. MAIN INTERACTIVE LOOP
 # ==========================================
 if __name__ == "__main__":
-    chat_language = select_chat_language()
-    if chat_language == "vi":
-        speak(
-            "Xin chào! Mình là Sparky, robot trợ lý ngoại tuyến của bạn. "
-            "Cùng trò chuyện nhé!",
-            chat_language,
-        )
+    print("=" * 50)
+    print(f" Starting Sparky Robot (Language Mode: {ROBOT_LANG.upper()})")
+    print("=" * 50)
+
+    whisper_model = initialize_whisper(ROBOT_LANG)
+    llm = initialize_llm()
+
+    # Friendly greeting
+    if ROBOT_LANG == "vi":
+        speak("Xin chào! Mình là Sparky, robot ngoại tuyến của bạn. Cùng trò chuyện nhé!", ROBOT_LANG)
     else:
-        speak("Hello! I am Sparky, your fully offline robot assistant. Let's talk!", chat_language)
+        speak("Hello! I am Sparky, your offline robot assistant. Let's talk!", ROBOT_LANG)
+
+    exit_phrases = {
+        "en": ("bye", "exit", "quit", "goodbye"),
+        "vi": ("tạm biệt", "thoát", "kết thúc", "nghỉ thôi"),
+    }[ROBOT_LANG]
 
     while True:
-        audio = record_audio(duration=5) # Records for 5 seconds per turn
+        audio = record_audio(duration=5)
         if audio is not None:
-            user_speech = transcribe_audio(audio, language=chat_language)
+            user_speech = transcribe_audio(whisper_model, audio, language=ROBOT_LANG)
 
             if user_speech:
-                exit_phrases = {
-                    "en": ("bye", "exit"),
-                    "vi": ("tạm biệt", "thoát", "kết thúc"),
-                }[chat_language]
-                if any(phrase in user_speech.casefold() for phrase in exit_phrases):
-                    if chat_language == "vi":
-                        speak("Tạm biệt! Chúc bạn một ngày tuyệt vời!", chat_language)
+                # Check for exit commands
+                lower_speech = user_speech.casefold()
+                if any(re.search(rf"\b{re.escape(phrase)}\b", lower_speech) for phrase in exit_phrases):
+                    if ROBOT_LANG == "vi":
+                        speak("Tạm biệt! Chúc bạn một ngày tuyệt vời!", ROBOT_LANG)
                     else:
-                        speak("Goodbye! Have a wonderful day!", chat_language)
+                        speak("Goodbye! Have a wonderful day!", ROBOT_LANG)
                     break
 
                 # Generate AI reply and speak it
-                reply = generate_response(user_speech, chat_language)
-                speak(reply, chat_language)
+                reply = generate_response(llm, user_speech, language=ROBOT_LANG)
+                speak(reply, ROBOT_LANG)

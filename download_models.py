@@ -18,37 +18,69 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 PIPER_DIR = MODELS_DIR / "piper"
-WHISPER_DIR = MODELS_DIR / "whisper-tiny"
+WHISPER_DIR = MODELS_DIR / "whisper"
+WHISPER_EN_DIR = WHISPER_DIR / "en"
+WHISPER_VI_DIR = WHISPER_DIR / "vi"
 
 
 def ensure_dirs():
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     PIPER_DIR.mkdir(parents=True, exist_ok=True)
-    WHISPER_DIR.mkdir(parents=True, exist_ok=True)
+    WHISPER_EN_DIR.mkdir(parents=True, exist_ok=True)
+    WHISPER_VI_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def download_whisper():
-    print("\n--- [1/3] Checking / Downloading Faster-Whisper (tiny) ---")
-    model_bin = WHISPER_DIR / "model.bin"
-    if model_bin.is_file():
-        print(f"[✓] Whisper model already exists at: {WHISPER_DIR}")
-        return
+def download_whisper(language="vi"):
+    """
+    Downloads dedicated, language-optimized Whisper models:
+      - 'vi': PhoWhisper-base (fine-tuned by VinAI on 844h Vietnamese speech, CTranslate2 format)
+      - 'en': faster-whisper-tiny.en (English-only tiny model)
+    """
+    print(f"\n--- [1/3] Checking / Downloading Whisper STT for language: '{language}' ---")
 
-    try:
-        from faster_whisper import download_model
+    if language == "vi":
+        model_bin = WHISPER_VI_DIR / "model.bin"
+        if model_bin.is_file():
+            print(f"[✓] Vietnamese PhoWhisper model already exists at: {WHISPER_VI_DIR}")
+            return
 
-        print("Downloading Whisper 'tiny' via faster-whisper...")
-        download_model("tiny", output_dir=str(WHISPER_DIR))
-        print(f"[✓] Whisper model downloaded to {WHISPER_DIR}")
-    except ImportError:
-        print("[!] faster-whisper not installed. Falling back to huggingface_hub...")
+        print("Downloading PhoWhisper-base (Vietnamese-specialized CT2 model) from Hugging Face...")
         from huggingface_hub import snapshot_download
 
         snapshot_download(
-            repo_id="Systran/faster-whisper-tiny",
+            repo_id="quocphu/PhoWhisper-ct2-FasterWhisper",
+            allow_patterns=["PhoWhisper-base-ct2-fasterWhisper/*"],
             local_dir=str(WHISPER_DIR),
         )
-        print(f"[✓] Whisper model downloaded to {WHISPER_DIR}")
+
+        # Move files from subfolder into WHISPER_VI_DIR
+        subfolder = WHISPER_DIR / "PhoWhisper-base-ct2-fasterWhisper"
+        if subfolder.exists():
+            for item in subfolder.iterdir():
+                dest = WHISPER_VI_DIR / item.name
+                if not dest.exists():
+                    shutil.move(str(item), str(dest))
+            shutil.rmtree(subfolder, ignore_errors=True)
+
+        print(f"[✓] Vietnamese Whisper model saved to: {WHISPER_VI_DIR}")
+
+    elif language == "en":
+        model_bin = WHISPER_EN_DIR / "model.bin"
+        if model_bin.is_file():
+            print(f"[✓] English Whisper model already exists at: {WHISPER_EN_DIR}")
+            return
+
+        print("Downloading Whisper 'tiny.en' (English dedicated) via faster-whisper...")
+        try:
+            from faster_whisper import download_model
+            download_model("tiny.en", output_dir=str(WHISPER_EN_DIR))
+        except Exception:
+            from huggingface_hub import snapshot_download
+            snapshot_download(
+                repo_id="Systran/faster-whisper-tiny.en",
+                local_dir=str(WHISPER_EN_DIR),
+            )
+        print(f"[✓] English Whisper model saved to: {WHISPER_EN_DIR}")
 
 
 def download_llm():
@@ -127,15 +159,32 @@ def download_piper_voices():
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Download offline models for Sparky Robot.")
+    parser.add_argument(
+        "--lang",
+        choices=["vi", "en", "all"],
+        default="vi",
+        help="Target language for STT and voice assets (default: vi)",
+    )
+    args = parser.parse_args()
+
     print("=" * 50)
     print(" Sparky Robot - Offline Model Downloader (Python)")
+    print(f" Target Language: {args.lang.upper()}")
     print("=" * 50)
     ensure_dirs()
-    download_whisper()
+
+    if args.lang in ("vi", "all"):
+        download_whisper("vi")
+    if args.lang in ("en", "all"):
+        download_whisper("en")
+
     download_llm()
     download_piper_voices()
     print("\n" + "=" * 50)
-    print(" All models verified and ready for offline use!")
+    print(" All requested models verified and ready for offline use!")
     print("=" * 50)
 
 
