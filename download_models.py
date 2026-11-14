@@ -4,7 +4,7 @@ download_models.py
 Automated Python script to download local offline models for Sparky Robot:
 1. Faster-Whisper (tiny) STT
 2. LLaMA 3.2 1B Instruct (GGUF Q4_K_M)
-3. Piper TTS Voices (en_US lessac & vi_VN vais1000)
+3. Piper TTS Voices (en_US lessac & vi_VN vais1000, csa-voice-v3 5-speaker, 25hours_single)
 
 Requirements:
     pip install huggingface_hub faster-whisper
@@ -120,7 +120,7 @@ def download_piper_voices():
             "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
             "en_US-lessac-medium.onnx.json",
         ),
-        # Vietnamese: vais1000-medium
+        # Vietnamese: vais1000-medium (warm, clear female)
         (
             "vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx",
             "vi_VN-vais1000-medium.onnx",
@@ -128,6 +128,24 @@ def download_piper_voices():
         (
             "vi/vi_VN/vais1000/medium/vi_VN-vais1000-medium.onnx.json",
             "vi_VN-vais1000-medium.onnx.json",
+        ),
+        # Vietnamese: csa-voice-piper-v3-medium (5 speakers, high quality, cute child-friendly)
+        (
+            "vi/vi_VN/csa-voice-piper-v3/medium/vi_VN-csa-voice-piper-v3-medium.onnx",
+            "vi_VN-csa-voice-piper-v3-medium.onnx",
+        ),
+        (
+            "vi/vi_VN/csa-voice-piper-v3/medium/vi_VN-csa-voice-piper-v3-medium.onnx.json",
+            "vi_VN-csa-voice-piper-v3-medium.onnx.json",
+        ),
+        # Vietnamese: 25hours_single-low (male voice, lower quality)
+        (
+            "vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx",
+            "vi_VN-25hours_single-low.onnx",
+        ),
+        (
+            "vi/vi_VN/25hours_single/low/vi_VN-25hours_single-low.onnx.json",
+            "vi_VN-25hours_single-low.onnx.json",
         ),
     ]
 
