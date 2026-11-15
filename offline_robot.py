@@ -1,10 +1,8 @@
 import sounddevice as sd
 import numpy as np
-import gc
 import io
 import os
 import re
-import sys
 import unicodedata
 import wave
 from pathlib import Path
@@ -14,15 +12,8 @@ from piper import PiperVoice
 from piper.config import SynthesisConfig
 
 # ==========================================
-# 0. CONFIGURATION & PRE-SET LANGUAGE
+# 0. CONFIGURATION
 # ==========================================
-# Preset language for the robot: "vi" or "en"
-# Can be overridden via environment variable: export ROBOT_LANG=vi
-ROBOT_LANG = os.getenv("ROBOT_LANG", "vi").strip().lower()
-if ROBOT_LANG not in ("vi", "en"):
-    print(f"Warning: Unsupported ROBOT_LANG='{ROBOT_LANG}'. Defaulting to 'vi'.")
-    ROBOT_LANG = "vi"
-
 # Robot Voice Effect Profile:
 #   - "cute_companion": pitch shift + subtle robot DSP (default, kid-friendly)
 #   - "robot_droid": pitch shift + stronger robot DSP
@@ -32,204 +23,36 @@ ROBOT_VOICE_STYLE = os.getenv("ROBOT_VOICE_STYLE", "cute_companion").strip().low
 BASE_DIR = Path(__file__).resolve().parent
 MODELS_DIR = BASE_DIR / "models"
 
-# Language-specific Whisper paths (PhoWhisper for 'vi', tiny.en/base.en for 'en')
-WHISPER_MODEL_PATHS = {
-    "vi": MODELS_DIR / "whisper" / "vi",
-    "en": MODELS_DIR / "whisper" / "en",
-}
+WHISPER_MODEL_PATH = MODELS_DIR / "whisper" / "en"
+PIPER_VOICE_PATH = MODELS_DIR / "piper" / "en_US-lessac-medium.onnx"
 
-VOICE_MODELS = {
-    "en": MODELS_DIR / "piper" / "en_US-lessac-medium.onnx",
-}
+# Initial context prompt to prime Whisper's tokenizer for natural English speech
+WHISPER_INITIAL_PROMPT = "Hello, this is a spoken conversation in English."
 
-# ==========================================
-# VIETNAMESE VOICE PROFILES (kid-friendly companion robot)
-# ==========================================
-# Each profile picks a Piper model + optional speaker_id + synthesis tuning so
-# Sparky sounds like a friendly, encouraging, cute companion robot for kids.
-#
-# Available Vietnamese profiles:
-#   - vais1000_female : warm, clear female voice (Vais1000 dataset) - the previous default
-#   - csa_child       : young & cute (CSA Voice V3 speaker 4, Yen Nhi)  ★ best for kids
-#   - csa_gentle      : gentle female (CSA Voice V3 speaker 0, Ngoc Lan)
-#   - csa_cheerful    : cheerful female (CSA Voice V3 speaker 1, Minh Hanh)
-#   - csa_bright      : bright & curious female (CSA Voice V3 speaker 3, Thu Ha)
-#   - single_male     : male voice (25 hours single, Quang Huy, lower quality)
-#
-# Select via env var:  export VI_VOICE_PROFILE=csa_child
+# English-dedicated models are fast and accurate enough with a small beam size
+WHISPER_BEAM_SIZE = 2
 
-VI_VOICE_PROFILES = {
-    "vais1000_female": {
-        "model": "vi_VN-vais1000-medium.onnx",
-        "speaker_id": None,
-        "length_scale": 0.90,
-        "noise_scale": 0.75,
-        "noise_w_scale": 0.85,
-        "pitch_semitones": 3.6,
-        "desc": "Nồng ấm, rõ ràng - giọng nữ ấm áp (Vais1000)",
-    },
-    "csa_child": {
-        "model": "vi_VN-csa-voice-piper-v3-medium.onnx",
-        "speaker_id": 4,
-        "length_scale": 0.92,
-        "noise_scale": 0.78,
-        "noise_w_scale": 0.88,
-        "pitch_semitones": 3.2,
-        "desc": "Ngầu, đáng yêu, giọng trẻ em (Yen Nhi - CSA Voice speaker 4) ★ khuyên dùng cho trẻ em",
-    },
-    "csa_gentle": {
-        "model": "vi_VN-csa-voice-piper-v3-medium.onnx",
-        "speaker_id": 0,
-        "length_scale": 0.90,
-        "noise_scale": 0.70,
-        "noise_w_scale": 0.82,
-        "pitch_semitones": 3.0,
-        "desc": "Dịu dàng, nhẹ nhàng (Ngoc Lan - CSA Voice speaker 0)",
-    },
-    "csa_cheerful": {
-        "model": "vi_VN-csa-voice-piper-v3-medium.onnx",
-        "speaker_id": 1,
-        "length_scale": 0.88,
-        "noise_scale": 0.80,
-        "noise_w_scale": 0.90,
-        "pitch_semitones": 3.4,
-        "desc": "Vui tươi, hào hứng (Minh Hanh - CSA Voice speaker 1)",
-    },
-    "csa_bright": {
-        "model": "vi_VN-csa-voice-piper-v3-medium.onnx",
-        "speaker_id": 3,
-        "length_scale": 0.89,
-        "noise_scale": 0.76,
-        "noise_w_scale": 0.86,
-        "pitch_semitones": 3.2,
-        "desc": "Sáng tạo, tò mò (Thu Ha - CSA Voice speaker 3)",
-    },
-    "single_male": {
-        "model": "vi_VN-25hours_single-low.onnx",
-        "speaker_id": None,
-        "length_scale": 0.95,
-        "noise_scale": 0.667,
-        "noise_w_scale": 0.80,
-        "pitch_semitones": 2.0,
-        "desc": "Giọng nam (Quang Huy - 25 giờ đơn, chất lượng thấp hơn)",
-    },
-}
-
-# Pick the Vietnamese voice profile (default: cute child voice for kids)
-VI_VOICE_PROFILE = os.getenv("VI_VOICE_PROFILE", "csa_child").strip().lower()
-if VI_VOICE_PROFILE not in VI_VOICE_PROFILES:
-    print(f"Warning: Unknown VI_VOICE_PROFILE='{VI_VOICE_PROFILE}'. Defaulting to 'csa_child'.")
-    VI_VOICE_PROFILE = "csa_child"
-
-
-def vi_voice_model_path(profile=VI_VOICE_PROFILE):
-    return MODELS_DIR / "piper" / VI_VOICE_PROFILES[profile]["model"]
-
-
-def vi_voice_speaker_id(profile=VI_VOICE_PROFILE):
-    return VI_VOICE_PROFILES[profile].get("speaker_id")
-
-
-def vi_voice_synthesis_config(profile=VI_VOICE_PROFILE):
-    p = VI_VOICE_PROFILES[profile]
-    return SynthesisConfig(
-        speaker_id=p.get("speaker_id"),
-        length_scale=p["length_scale"],
-        noise_scale=p["noise_scale"],
-        noise_w_scale=p["noise_w_scale"],
-    )
-
-
-def vi_voice_pitch_semitones(profile=VI_VOICE_PROFILE):
-    return VI_VOICE_PROFILES[profile]["pitch_semitones"]
-
-
-def list_vi_voices():
-    """Print all available Vietnamese voice profiles with descriptions."""
-    print("\n" + "=" * 60)
-    print("  Available Vietnamese voice profiles (VI_VOICE_PROFILE):")
-    print("=" * 60)
-    for key, p in VI_VOICE_PROFILES.items():
-        marker = "  ★ DEFAULT" if key == VI_VOICE_PROFILE else ""
-        speaker = f" (speaker_id={p['speaker_id']})" if p.get("speaker_id") is not None else " (single speaker)"
-        print(f"  - {key:18s}{speaker:24s} {p['desc']}{marker}")
-    print("  Select with:  export VI_VOICE_PROFILE=<name>")
-    print("=" * 60 + "\n")
-
-
-# Initial context prompt to prime Whisper tokenizer for Vietnamese diacritics
-INITIAL_PROMPTS = {
-    "vi": "Xin chào, đây là cuộc trò chuyện bằng tiếng Việt có dấu đầy đủ.",
-    "en": "Hello, this is a spoken conversation in English.",
-}
-
-# Adaptive beam size:
-# - vi: beam_size=5 (essential for tonal accuracy)
-# - en: beam_size=2 or 3 (fast and accurate enough on English-dedicated models)
-BEAM_SIZES = {
-    "vi": 5,
-    "en": 2,
-}
 
 # ==========================================
 # 1. TEXT PREPROCESSING & NORMALIZATION FOR TTS
 # ==========================================
-def _convert_small_number_to_vi(match):
-    val = int(match.group(0))
-    if val > 99:
-        return str(val)
-    units = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"]
-    if val < 10:
-        return units[val]
-    if val == 10:
-        return "mười"
-    if val < 20:
-        remainder = val % 10
-        if remainder == 5:
-            return "mười lăm"
-        return f"mười {units[remainder]}"
-    tens = val // 10
-    remainder = val % 10
-    tens_str = "hai mươi" if tens == 2 else f"{units[tens]} mươi"
-    if remainder == 0:
-        return tens_str
-    elif remainder == 1:
-        return f"{tens_str} mốt"
-    elif remainder == 4:
-        return f"{tens_str} tư"
-    elif remainder == 5:
-        return f"{tens_str} lăm"
-    return f"{tens_str} {units[remainder]}"
-
-
-def preprocess_text_for_tts(text: str, language: str = ROBOT_LANG) -> str:
+def preprocess_text_for_tts(text: str) -> str:
     """
     Cleans and normalizes text before feeding it to Piper TTS.
-    Especially crucial for Vietnamese:
-    - Normalizes Unicode to NFC (prevents decomposed diacritics from breaking eSpeak-ng).
+    - Normalizes Unicode to NFC.
     - Cleans markdown/formatting symbols.
-    - Expands small numbers and common units into spoken Vietnamese.
     - Ensures clean sentence-ending punctuation for natural prosodic pauses.
     """
     if not text:
         return ""
 
-    # 1. Unicode normalization to NFC (vital for Vietnamese diacritics and tones)
+    # 1. Unicode normalization to NFC
     text = unicodedata.normalize("NFC", text)
 
     # 2. Strip leftover markdown artifacts, bullet points, brackets, and quotes
     text = re.sub(r"[\*\#\_`~<>]", " ", text)
     text = re.sub(r"\[.*?\]|\(.*?\)", " ", text)
     text = re.sub(r"^[\s\-\*\•\d+\.]+\s+", "", text)  # leading bullets/numbering
-
-    if language == "vi":
-        # Expand percentage and temperature units
-        text = re.sub(r"(\d+)\s*%", r"\1 phần trăm", text)
-        text = re.sub(r"(\d+)\s*°\s*C\b", r"\1 độ C", text, flags=re.IGNORECASE)
-        text = re.sub(r"(\d+)\s*km/h\b", r"\1 ki-lô-mét một giờ", text, flags=re.IGNORECASE)
-
-        # Expand isolated small integers (0-99) into Vietnamese words for natural tonal flow
-        text = re.sub(r"\b\d{1,2}\b", _convert_small_number_to_vi, text)
 
     # 3. Collapse multiple whitespaces
     text = re.sub(r"\s+", " ", text).strip()
@@ -241,19 +64,12 @@ def preprocess_text_for_tts(text: str, language: str = ROBOT_LANG) -> str:
     return text
 
 
-# Piper synthesis configurations per language:
-# - vi: now profile-driven (see VI_VOICE_PROFILES) for kid-friendly expressiveness
-# - en: fixed warm setting
-PIPER_SYNTHESIS_CONFIGS = {
-    "en": SynthesisConfig(length_scale=0.92, noise_scale=0.667, noise_w_scale=0.8),
-}
+# Piper synthesis configuration (warm, friendly setting)
+PIPER_SYNTHESIS_CONFIG = SynthesisConfig(length_scale=0.92, noise_scale=0.667, noise_w_scale=0.8)
 
-# Pitch shift semitones per language (+N semitones raises the pitch formant
-# into an adorable, youthful companion robot register without chipmunk distortion):
-# - vi: now profile-driven (see VI_VOICE_PROFILES / vi_voice_pitch_semitones)
-PITCH_SHIFT_SEMITONES = {
-    "en": 2.5,
-}
+# Pitch shift semitones (+N semitones raises the pitch formant into an adorable,
+# youthful companion robot register without chipmunk distortion):
+PITCH_SHIFT_SEMITONES = 2.5
 
 
 def pitch_shift(audio_int16: np.ndarray, semitones: float, n_fft: int = 1024, hop_length: int = 256) -> np.ndarray:
@@ -375,75 +191,40 @@ def apply_robot_dsp(
 # 2. INITIALIZE OFFLINE COMPONENTS
 # ==========================================
 _piper_voice = None
-_piper_voice_profile = None  # cache key: "en" or "vi:<profile>"
 
 
-def get_piper_voice(language=ROBOT_LANG, profile=None):
-    """
-    Load a Piper voice.
-    - language='en'  -> English Lessac voice (cached by "en")
-    - language='vi'  -> Vietnamese voice selected by `profile` (defaults to VI_VOICE_PROFILE),
-                        cached by "vi:<profile>"
-    """
-    global _piper_voice, _piper_voice_profile
+def get_piper_voice():
+    """Load (and cache) the local English Piper voice."""
+    global _piper_voice
 
-    if language == "en":
-        voice_path = VOICE_MODELS["en"]
-        cache_key = "en"
-    elif language == "vi":
-        profile = profile or VI_VOICE_PROFILE
-        if profile not in VI_VOICE_PROFILES:
-            raise ValueError(f"Unsupported Vietnamese voice profile: '{profile}'.")
-        voice_path = vi_voice_model_path(profile)
-        cache_key = f"vi:{profile}"
-    else:
-        raise ValueError(f"Unsupported Piper voice language: '{language}'.")
-
-    if not voice_path.is_file():
+    if not PIPER_VOICE_PATH.is_file():
         raise FileNotFoundError(
-            f"Local Piper voice model not found at '{voice_path}'. "
+            f"Local Piper voice model not found at '{PIPER_VOICE_PATH}'. "
             "Run 'python download_models.py' to download required voices."
         )
 
-    if cache_key != _piper_voice_profile:
-        _piper_voice = None
-        _piper_voice_profile = None
-        gc.collect()
-        label = f"vi profile '{profile}'" if language == "vi" else f"'{language}'"
-        print(f"Loading local Piper voice for {label}...")
-        _piper_voice = PiperVoice.load(str(voice_path))
-        _piper_voice_profile = cache_key
+    if _piper_voice is None:
+        print("Loading local Piper voice...")
+        _piper_voice = PiperVoice.load(str(PIPER_VOICE_PATH))
 
     if _piper_voice is None:
         raise RuntimeError("Piper voice failed to load.")
     return _piper_voice
 
 
-def speak(text, language=ROBOT_LANG, profile=None):
-    """
-    Speak text with the selected voice profile.
-    - language='vi' uses profile (defaults to VI_VOICE_PROFILE, or `profile` if given)
-    - language='en' uses the English Lessac voice
-    """
+def speak(text):
+    """Speak text with the local English voice and the companion robot effect."""
     print(f"\nRobot: {text}")
     try:
-        clean_text = preprocess_text_for_tts(text, language)
+        clean_text = preprocess_text_for_tts(text)
         if not clean_text:
             return
 
-        if language == "vi":
-            profile = profile or VI_VOICE_PROFILE
-            voice = get_piper_voice("vi", profile=profile)
-            syn_config = vi_voice_synthesis_config(profile)
-            shift_val = vi_voice_pitch_semitones(profile)
-        else:
-            voice = get_piper_voice("en")
-            syn_config = PIPER_SYNTHESIS_CONFIGS.get("en", None)
-            shift_val = PITCH_SHIFT_SEMITONES.get("en", 0.0)
+        voice = get_piper_voice()
 
         audio_buffer = io.BytesIO()
         with wave.open(audio_buffer, "wb") as wav_file:
-            voice.synthesize_wav(clean_text, wav_file, syn_config=syn_config)
+            voice.synthesize_wav(clean_text, wav_file, syn_config=PIPER_SYNTHESIS_CONFIG)
 
         audio_buffer.seek(0)
         with wave.open(audio_buffer, "rb") as wav_file:
@@ -455,7 +236,7 @@ def speak(text, language=ROBOT_LANG, profile=None):
 
             # Apply child-like companion robot pitch-shift
             # (skipped when ROBOT_VOICE_STYLE == "natural")
-            shift_val = PITCH_SHIFT_SEMITONES.get(language, 0.0)
+            shift_val = PITCH_SHIFT_SEMITONES
             if shift_val != 0.0 and len(audio) > 0 and ROBOT_VOICE_STYLE != "natural":
                 if num_channels > 1:
                     audio = audio.reshape(-1, num_channels)
@@ -485,19 +266,18 @@ def speak(text, language=ROBOT_LANG, profile=None):
         print(f"TTS Error: {e}")
 
 
-def resolve_whisper_path(language):
-    target_path = WHISPER_MODEL_PATHS.get(language)
-    if target_path and target_path.is_dir() and (target_path / "model.bin").is_file():
-        return str(target_path)
+def resolve_whisper_path():
+    if WHISPER_MODEL_PATH.is_dir() and (WHISPER_MODEL_PATH / "model.bin").is_file():
+        return str(WHISPER_MODEL_PATH)
     raise FileNotFoundError(
-        f"Whisper model directory not found for language '{language}'. "
-        f"Please run 'python download_models.py --lang {language}' first."
+        f"Whisper model directory not found at '{WHISPER_MODEL_PATH}'. "
+        "Please run 'python download_models.py' first."
     )
 
 
-def initialize_whisper(language=ROBOT_LANG):
-    model_path = resolve_whisper_path(language)
-    print(f"Loading local Whisper model for '{language}' from: {model_path}...")
+def initialize_whisper():
+    model_path = resolve_whisper_path()
+    print(f"Loading local Whisper model from: {model_path}...")
     return WhisperModel(
         model_path,
         device="cpu",
@@ -525,22 +305,12 @@ def initialize_llm():
 # ==========================================
 # 3. PERSONALITY & PROMPTS
 # ==========================================
-SYSTEM_PROMPTS = {
-    "en": (
-        "You are Sparky, a cheerful, cute, and encouraging companion robot friend for kids! "
-        "Always reply in English with warmth, enthusiasm, and child-friendly curiosity. "
-        "Keep answers short (1-3 sentences maximum). "
-        "Never use formatting symbols, markdown, emojis, or bullet points."
-    ),
-    "vi": (
-        "Bạn là Sparky, một bạn robot nhỏ nhắn, siêu đáng yêu, vui tươi và luôn khích lệ các bạn nhỏ! "
-        "Xưng hô là 'mình' và gọi trẻ là 'bạn' hoặc 'bạn nhỏ'. Giọng điệu hào hứng, ấm áp, ngộ nghĩnh và gần gũi. "
-        "Luôn trả lời bằng tiếng Việt có dấu đầy đủ, chuẩn chính tả. "
-        "Trả lời thật ngắn gọn và sinh động (chỉ 1 đến 2 câu). "
-        "Tuyệt đối không dùng ký hiệu định dạng, Markdown, biểu tượng cảm xúc hoặc gạch đầu dòng. "
-        "Viết các số đếm thành chữ tiếng Việt để giọng đọc truyền cảm nhất."
-    ),
-}
+SYSTEM_PROMPT = (
+    "You are Sparky, a cheerful, cute, and encouraging companion robot friend for kids! "
+    "Always reply in English with warmth, enthusiasm, and child-friendly curiosity. "
+    "Keep answers short (1-3 sentences maximum). "
+    "Never use formatting symbols, markdown, emojis, or bullet points."
+)
 
 # ==========================================
 # 4. CORE AUDIO & INFERENCE FUNCTIONS
@@ -561,16 +331,13 @@ def record_audio(duration=5, sample_rate=16000):
         return None
 
 
-def transcribe_audio(whisper_model, audio_data, language=ROBOT_LANG):
+def transcribe_audio(whisper_model, audio_data):
     try:
-        beam_size = BEAM_SIZES.get(language, 5)
-        initial_prompt = INITIAL_PROMPTS.get(language, None)
-
         segments, info = whisper_model.transcribe(
             audio_data,
-            beam_size=beam_size,
-            language=language,
-            initial_prompt=initial_prompt,
+            beam_size=WHISPER_BEAM_SIZE,
+            language="en",
+            initial_prompt=WHISPER_INITIAL_PROMPT,
             vad_filter=True,  # Filter out silence and noise hallucinations
         )
         text = " ".join([segment.text for segment in segments]).strip()
@@ -581,11 +348,11 @@ def transcribe_audio(whisper_model, audio_data, language=ROBOT_LANG):
         return ""
 
 
-def generate_response(llm, user_text, language=ROBOT_LANG):
+def generate_response(llm, user_text):
     try:
         response = llm.create_chat_completion(
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPTS[language]},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_text},
             ],
             temperature=0.7,
@@ -597,8 +364,6 @@ def generate_response(llm, user_text, language=ROBOT_LANG):
         return cleaned_text
     except Exception as e:
         print(f"LLM Generation Error: {e}")
-        if language == "vi":
-            return "Ôi, mạch điện của mình bị rối mất rồi. Bạn nói lại nhé?"
         return "Oops! My circuits got tangled for a second. Can you say that again?"
 
 
@@ -607,48 +372,29 @@ def generate_response(llm, user_text, language=ROBOT_LANG):
 # ==========================================
 if __name__ == "__main__":
     print("=" * 50)
-    print(f" Starting Sparky Robot (Language Mode: {ROBOT_LANG.upper()})")
+    print(" Starting Sparky Robot")
     print("=" * 50)
 
-    # Optionally list all Vietnamese voices and exit (ROBOT_LIST_VOICES=1)
-    if os.getenv("ROBOT_LIST_VOICES", "0") == "1" and ROBOT_LANG == "vi":
-        list_vi_voices()
-        sys.exit(0)
-
-    whisper_model = initialize_whisper(ROBOT_LANG)
+    whisper_model = initialize_whisper()
     llm = initialize_llm()
 
-    # Announce active voice profile
-    if ROBOT_LANG == "vi":
-        p = VI_VOICE_PROFILES[VI_VOICE_PROFILE]
-        print(f"  Vietnamese voice profile: {VI_VOICE_PROFILE} — {p['desc']}")
-
     # Friendly greeting
-    if ROBOT_LANG == "vi":
-        speak("Xin chào! Mình là Sparky, robot ngoại tuyến của bạn. Cùng trò chuyện nhé!", ROBOT_LANG)
-    else:
-        speak("Hello! I am Sparky, your offline robot assistant. Let's talk!", ROBOT_LANG)
+    speak("Hello! I am Sparky, your offline robot assistant. Let's talk!")
 
-    exit_phrases = {
-        "en": ("bye", "exit", "quit", "goodbye"),
-        "vi": ("tạm biệt", "thoát", "kết thúc", "nghỉ thôi"),
-    }[ROBOT_LANG]
+    exit_phrases = ("bye", "exit", "quit", "goodbye")
 
     while True:
         audio = record_audio(duration=5)
         if audio is not None:
-            user_speech = transcribe_audio(whisper_model, audio, language=ROBOT_LANG)
+            user_speech = transcribe_audio(whisper_model, audio)
 
             if user_speech:
                 # Check for exit commands
                 lower_speech = user_speech.casefold()
                 if any(re.search(rf"\b{re.escape(phrase)}\b", lower_speech) for phrase in exit_phrases):
-                    if ROBOT_LANG == "vi":
-                        speak("Tạm biệt! Chúc bạn một ngày tuyệt vời!", ROBOT_LANG)
-                    else:
-                        speak("Goodbye! Have a wonderful day!", ROBOT_LANG)
+                    speak("Goodbye! Have a wonderful day!")
                     break
 
                 # Generate AI reply and speak it
-                reply = generate_response(llm, user_speech, language=ROBOT_LANG)
-                speak(reply, ROBOT_LANG)
+                reply = generate_response(llm, user_speech)
+                speak(reply)

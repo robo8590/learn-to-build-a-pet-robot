@@ -10,7 +10,7 @@ The mission of this project is to learn and build a personal, cute, and helpful 
 ### A. Personality & Companion
 - **Tone & Persona**: Warm, encouraging, playful, gentle, and child-friendly.
 - **Safety**: Safe language, positive reinforcement, no harmful or scary responses.
-- **Language Support**: Bilingual interaction in English and Vietnamese.
+- **Language Support**: English interaction.
 
 ### B. Educational Tutor for Kids
 - **Math Mentorship**:
@@ -40,7 +40,7 @@ The mission of this project is to learn and build a personal, cute, and helpful 
 3. **Core Tech Stack**:
    - **STT**: `faster-whisper` (e.g., `whisper-tiny` with int8 quantization).
    - **LLM**: Local small language models via `llama-cpp-python` (e.g., Llama 3.2 1B / 3B GGUF).
-   - **TTS**: `piper-tts` (low-latency ONNX models for English and Vietnamese).
+   - **TTS**: `piper-tts` (low-latency ONNX models for English).
    - **Audio I/O**: `sounddevice`, `numpy`.
 
 ---
