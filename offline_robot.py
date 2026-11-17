@@ -1,3 +1,4 @@
+import argparse
 import sounddevice as sd
 import numpy as np
 import io
@@ -5,11 +6,21 @@ import os
 import re
 import unicodedata
 import wave
-from pathlib import Path
 from faster_whisper import WhisperModel
 from llama_cpp import Llama
 from piper import PiperVoice
 from piper.config import SynthesisConfig
+
+from model_config import (
+    DEFAULT_LLM_MODEL,
+    PIPER_VOICE_PATH,
+    WHISPER_MODEL_PATH,
+    available_llm_keys,
+    get_llm_config,
+    is_llm_downloaded,
+    llm_path,
+    resolve_llm_model_key,
+)
 
 # ==========================================
 # 0. CONFIGURATION
@@ -20,11 +31,21 @@ from piper.config import SynthesisConfig
 #   - "natural": pure, unmodified Piper voice (no pitch shift, no DSP)
 ROBOT_VOICE_STYLE = os.getenv("ROBOT_VOICE_STYLE", "cute_companion").strip().lower()
 
-BASE_DIR = Path(__file__).resolve().parent
-MODELS_DIR = BASE_DIR / "models"
 
-WHISPER_MODEL_PATH = MODELS_DIR / "whisper" / "en"
-PIPER_VOICE_PATH = MODELS_DIR / "piper" / "en_US-lessac-medium.onnx"
+def _env_int(name: str, default: int) -> int:
+    """Read an integer environment variable, falling back to a default."""
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
+# LLM runtime tuning. On a Raspberry Pi 5, set ROBOT_LLM_GPU_LAYERS=0.
+LLM_N_GPU_LAYERS = _env_int("ROBOT_LLM_GPU_LAYERS", -1)
+LLM_N_THREADS = _env_int("ROBOT_LLM_THREADS", 4)
+
+# Keep spoken replies short; see the latency targets in PROJECT_MISSION.md.
+LLM_MAX_TOKENS = _env_int("ROBOT_LLM_MAX_TOKENS", 96)
 
 # Initial context prompt to prime Whisper's tokenizer for natural English speech
 WHISPER_INITIAL_PROMPT = "Hello, this is a spoken conversation in English."
@@ -285,19 +306,36 @@ def initialize_whisper():
     )
 
 
-def initialize_llm():
-    llm_path = MODELS_DIR / "llama-3.2-1b-instruct.Q4_K_M.gguf"
-    if not llm_path.is_file():
-        raise FileNotFoundError(
-            f"LLM model not found at '{llm_path}'. Please run 'python download_models.py'."
+def initialize_llm(model_key=None):
+    """Load the selected local GGUF model.
+
+    Selection precedence: ``model_key`` (CLI) -> ``ROBOT_LLM_MODEL`` env var ->
+    ``DEFAULT_LLM_MODEL``.
+    """
+    try:
+        resolved_key = resolve_llm_model_key(
+            cli_value=model_key,
+            env_value=os.getenv("ROBOT_LLM_MODEL"),
+        )
+    except KeyError as e:
+        raise SystemExit(str(e))
+
+    config = get_llm_config(resolved_key)
+    path = llm_path(resolved_key)
+
+    if not path.is_file():
+        raise SystemExit(
+            f"LLM model '{resolved_key}' not found at '{path}'.\n"
+            f"Download it with: python download_models.py --llm {resolved_key}\n"
+            f"Available models: {', '.join(available_llm_keys())}"
         )
 
-    print("Loading local LLM (Llama 3.2 1B)...")
+    print(f"Loading local LLM: {config['label']} ({resolved_key})...")
     return Llama(
-        model_path=str(llm_path),
-        n_ctx=2048,
-        n_threads=4,
-        n_gpu_layers=-1,  # -1 for Mac GPU; set to 0 when deploying to Raspberry Pi 5
+        model_path=str(path),
+        n_ctx=config["n_ctx"],
+        n_threads=LLM_N_THREADS,
+        n_gpu_layers=LLM_N_GPU_LAYERS,
         verbose=False,
     )
 
@@ -356,7 +394,7 @@ def generate_response(llm, user_text):
                 {"role": "user", "content": user_text},
             ],
             temperature=0.7,
-            max_tokens=150,
+            max_tokens=LLM_MAX_TOKENS,
         )
         raw_text = response["choices"][0]["message"]["content"].strip()
         # Clean markdown asterisks or quotes for clean speech
@@ -368,15 +406,55 @@ def generate_response(llm, user_text):
 
 
 # ==========================================
-# 5. MAIN INTERACTIVE LOOP
+# 5. COMMAND-LINE INTERFACE
+# ==========================================
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Sparky - offline voice companion and tutor robot.",
+    )
+    parser.add_argument(
+        "--model",
+        metavar="KEY",
+        help="LLM model to load (overrides the ROBOT_LLM_MODEL env var).",
+    )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="List available LLM models and exit.",
+    )
+    return parser.parse_args(argv)
+
+
+def print_models_table():
+    print("Available LLM models:")
+    for key in available_llm_keys():
+        config = get_llm_config(key)
+        marker = " *default" if key == DEFAULT_LLM_MODEL else ""
+        status = "downloaded" if is_llm_downloaded(key) else "not downloaded"
+        print(f"  {key}{marker}")
+        print(
+            f"    {config['label']} | {config['size_gb']:.2f} GB | "
+            f"{status} | {config['notes']}"
+        )
+    print("\nDownload a model with: python download_models.py --llm KEY")
+
+
+# ==========================================
+# 6. MAIN INTERACTIVE LOOP
 # ==========================================
 if __name__ == "__main__":
+    args = parse_args()
+
+    if args.list_models:
+        print_models_table()
+        raise SystemExit(0)
+
     print("=" * 50)
     print(" Starting Sparky Robot")
     print("=" * 50)
 
+    llm = initialize_llm(args.model)
     whisper_model = initialize_whisper()
-    llm = initialize_llm()
 
     # Friendly greeting
     speak("Hello! I am Sparky, your offline robot assistant. Let's talk!")

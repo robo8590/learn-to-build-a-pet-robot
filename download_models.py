@@ -1,24 +1,77 @@
 #!/usr/bin/env python3
 """
 download_models.py
-Automated Python script to download local offline models for Sparky Robot:
-1. Faster-Whisper (tiny.en) STT
-2. LLaMA 3.2 1B Instruct (GGUF Q4_K_M)
-3. Piper TTS Voice (en_US lessac)
+Download the local offline models used by Sparky:
+
+1. Faster-Whisper (tiny.en) speech-to-text
+2. A local GGUF LLM (default: Qwen3.5 2B, see model_config.py)
+3. Piper TTS voice (en_US lessac)
+
+By default only the default LLM is downloaded. Use ``--llm`` to fetch another
+model, or ``--llm all`` to fetch every registered model.
+
+Examples:
+    python download_models.py
+    python download_models.py --list-llms
+    python download_models.py --llm gemma4-e2b
+    python download_models.py --llm all
 
 Requirements:
     pip install huggingface_hub faster-whisper
 """
 
+import argparse
 import shutil
 from pathlib import Path
 
-# Base directories
-BASE_DIR = Path(__file__).resolve().parent
-MODELS_DIR = BASE_DIR / "models"
-PIPER_DIR = MODELS_DIR / "piper"
-WHISPER_DIR = MODELS_DIR / "whisper"
-WHISPER_EN_DIR = WHISPER_DIR / "en"
+from model_config import (
+    DEFAULT_LLM_MODEL,
+    MODELS_DIR,
+    PIPER_VOICE_PATH,
+    WHISPER_MODEL_PATH,
+    available_llm_keys,
+    get_llm_config,
+    is_llm_downloaded,
+    llm_path,
+    resolve_llm_key,
+)
+
+PIPER_DIR = PIPER_VOICE_PATH.parent
+WHISPER_EN_DIR = WHISPER_MODEL_PATH
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Download the offline models used by Sparky.",
+    )
+    parser.add_argument(
+        "--llm",
+        metavar="KEY",
+        help=(
+            "LLM model key to download, or 'all' for every registered model. "
+            f"Default: {DEFAULT_LLM_MODEL}."
+        ),
+    )
+    parser.add_argument(
+        "--list-llms",
+        action="store_true",
+        help="List available LLM models and exit.",
+    )
+    return parser.parse_args(argv)
+
+
+def print_llms():
+    print("Available LLM models:")
+    for key in available_llm_keys():
+        config = get_llm_config(key)
+        marker = " *default" if key == DEFAULT_LLM_MODEL else ""
+        status = "downloaded" if is_llm_downloaded(key) else "not downloaded"
+        print(f"  {key}{marker}")
+        print(
+            f"    {config['label']} | {config['size_gb']:.2f} GB | "
+            f"{status} | {config['notes']}"
+        )
+    print("\nDownload with: python download_models.py --llm KEY")
 
 
 def ensure_dirs():
@@ -31,7 +84,7 @@ def download_whisper():
     """
     Downloads the English-only faster-whisper tiny model.
     """
-    print("\n--- [1/3] Checking / Downloading Whisper STT (English) ---")
+    print("\n--- Checking / Downloading Whisper STT (English) ---")
 
     model_bin = WHISPER_EN_DIR / "model.bin"
     if model_bin.is_file():
@@ -51,31 +104,36 @@ def download_whisper():
     print(f"[✓] English Whisper model saved to: {WHISPER_EN_DIR}")
 
 
-def download_llm():
-    print("\n--- [2/3] Checking / Downloading LLaMA 3.2 1B Instruct (GGUF) ---")
-    from huggingface_hub import hf_hub_download
+def download_llm(model_key):
+    """Download a single registered LLM by key."""
+    config = get_llm_config(model_key)
+    target_path = llm_path(model_key)
 
-    llm_file = MODELS_DIR / "llama-3.2-1b-instruct.Q4_K_M.gguf"
-    if llm_file.is_file():
-        print(f"[✓] LLM model already exists at: {llm_file}")
+    if target_path.is_file():
+        print(f"[✓] {config['label']} already exists at: {target_path}")
         return
 
-    print("Downloading LLaMA 3.2 1B Instruct (Q4_K_M) from Hugging Face...")
-    downloaded_path = hf_hub_download(
-        repo_id="bartowski/Llama-3.2-1B-Instruct-GGUF",
-        filename="Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+    from huggingface_hub import hf_hub_download
+
+    print(f"Downloading {config['label']} ({config['size_gb']:.2f} GB)...")
+    downloaded = hf_hub_download(
+        repo_id=config["repo_id"],
+        filename=config["hf_filename"],
         local_dir=str(MODELS_DIR),
     )
-    # Ensure standard filename matches code expectation
-    target_path = MODELS_DIR / "llama-3.2-1b-instruct.Q4_K_M.gguf"
-    if Path(downloaded_path) != target_path and not target_path.exists():
-        shutil.move(downloaded_path, target_path)
 
-    print(f"[✓] LLM saved to: {target_path}")
+    # Ensure the local filename matches the registry, regardless of how
+    # huggingface_hub laid out the file.
+    downloaded_path = Path(downloaded)
+    if downloaded_path != target_path:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(downloaded_path), str(target_path))
+
+    print(f"[✓] Saved: {target_path}")
 
 
 def download_piper_voices():
-    print("\n--- [3/3] Checking / Downloading Piper TTS Voice (English) ---")
+    print("\n--- Checking / Downloading Piper TTS Voice (English) ---")
     from huggingface_hub import hf_hub_download
 
     voices = [
@@ -117,14 +175,32 @@ def download_piper_voices():
         print(f"[✓] Saved: {dest_file}")
 
 
-def main():
+def main(argv=None):
+    args = parse_args(argv)
+
+    if args.list_llms:
+        print_llms()
+        return
+
+    try:
+        if args.llm and args.llm.strip().lower() == "all":
+            llm_keys = available_llm_keys()
+        else:
+            llm_keys = [resolve_llm_key(args.llm)]
+    except KeyError as e:
+        raise SystemExit(str(e))
+
     print("=" * 50)
-    print(" Sparky Robot - Offline Model Downloader (Python)")
+    print(" Sparky Robot - Offline Model Downloader")
     print("=" * 50)
     ensure_dirs()
 
     download_whisper()
-    download_llm()
+
+    print("\n--- Checking / Downloading local LLM(s) ---")
+    for key in llm_keys:
+        download_llm(key)
+
     download_piper_voices()
 
     print("\n" + "=" * 50)
