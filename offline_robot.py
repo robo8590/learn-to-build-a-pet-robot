@@ -7,10 +7,12 @@ import os
 import re
 import threading
 import time
+import base64
 import unicodedata
 import wave
 from faster_whisper import WhisperModel
 from llama_cpp import Llama
+from llama_cpp.llama_chat_format import Llava15ChatHandler
 from piper import PiperVoice
 from piper.config import SynthesisConfig
 
@@ -21,9 +23,13 @@ from model_config import (
     available_llm_keys,
     get_llm_config,
     is_llm_downloaded,
+    is_vision_ready,
     llm_path,
+    mmproj_path,
     resolve_llm_model_key,
 )
+
+from camera import capture_photo
 
 # ==========================================
 # 0. CONFIGURATION
@@ -340,6 +346,10 @@ def initialize_llm(model_key=None):
 
     Selection precedence: ``model_key`` (CLI) -> ``ROBOT_LLM_MODEL`` env var ->
     ``DEFAULT_LLM_MODEL``.
+
+    Returns ``(llm, vision_enabled)`` where ``vision_enabled`` is True when the
+    model supports vision and its mmproj projector was loaded, so image input
+    is usable for the "look and ..." feature.
     """
     try:
         resolved_key = resolve_llm_model_key(
@@ -360,13 +370,24 @@ def initialize_llm(model_key=None):
         )
 
     print(f"Loading local LLM: {config['label']} ({resolved_key})...")
-    return Llama(
+
+    chat_handler = None
+    if is_vision_ready(resolved_key):
+        projector = mmproj_path(resolved_key)
+        print(f"Loading vision projector: {projector}...")
+        chat_handler = Llava15ChatHandler(clip_model_path=str(projector))
+
+    llm = Llama(
         model_path=str(path),
         n_ctx=config["n_ctx"],
         n_threads=LLM_N_THREADS,
         n_gpu_layers=LLM_N_GPU_LAYERS,
+        chat_handler=chat_handler,
         verbose=False,
     )
+
+    vision_enabled = chat_handler is not None
+    return llm, vision_enabled
 
 
 # ==========================================
@@ -377,6 +398,15 @@ SYSTEM_PROMPT = (
     "Always reply in English with warmth, enthusiasm, and child-friendly curiosity. "
     "Keep answers short (1-3 sentences maximum). "
     "Never use formatting symbols, markdown, emojis, or bullet points."
+)
+
+VISION_SYSTEM_PROMPT = (
+    "You are Sparky, a cheerful, cute, and encouraging companion robot. "
+    "The user has shared a photo and asked you to do something with it. "
+    "Answer in English with warmth and kid-friendly curiosity. "
+    "Keep answers short (1-3 sentences maximum). "
+    "Never use formatting symbols, markdown, emojis, or bullet points. "
+    "If the photo is not clear enough to answer, say so gently."
 )
 
 # ==========================================
@@ -518,6 +548,40 @@ def generate_response(llm, user_text):
         return "Oops! My circuits got tangled for a second. Can you say that again?"
 
 
+def image_to_data_url(image_path: str) -> str:
+    """Convert a local image file into a base64 data URL for the vision LLM."""
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
+
+
+def generate_vision_response(llm, image_path: str, task: str) -> str:
+    """Send a photo plus a task to the vision-capable LLM and return the answer."""
+    try:
+        image_url = image_to_data_url(image_path)
+        response = llm.create_chat_completion(
+            messages=[
+                {"role": "system", "content": VISION_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": task},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                },
+            ],
+            temperature=0.7,
+            max_tokens=LLM_MAX_TOKENS,
+        )
+        raw_text = response["choices"][0]["message"]["content"].strip()
+        # Clean markdown asterisks or quotes for clean speech
+        cleaned_text = re.sub(r"[\*\#\_`]", "", raw_text)
+        return cleaned_text
+    except Exception as e:
+        print(f"Vision Generation Error: {e}")
+        return "I had trouble looking at that photo. Can you try again?"
+
+
 # ==========================================
 # 5. COMMAND-LINE INTERFACE
 # ==========================================
@@ -543,13 +607,15 @@ def print_models_table():
     for key in available_llm_keys():
         config = get_llm_config(key)
         marker = " *default" if key == DEFAULT_LLM_MODEL else ""
+        vision = " [vision]" if get_llm_config(key).get("supports_vision", False) else ""
         status = "downloaded" if is_llm_downloaded(key) else "not downloaded"
-        print(f"  {key}{marker}")
+        print(f"  {key}{marker}{vision}")
         print(
             f"    {config['label']} | {config['size_gb']:.2f} GB | "
             f"{status} | {config['notes']}"
         )
     print("\nDownload a model with: python download_models.py --llm KEY")
+    print("Download a vision projector with: python download_models.py --mmproj KEY")
 
 
 # ==========================================
@@ -566,7 +632,7 @@ if __name__ == "__main__":
     print(" Starting Sparky Robot")
     print("=" * 50)
 
-    llm = initialize_llm(args.model)
+    llm, vision_enabled = initialize_llm(args.model)
     whisper_model = initialize_whisper()
 
     # Friendly greeting
@@ -585,6 +651,23 @@ if __name__ == "__main__":
                 if any(re.search(rf"\b{re.escape(phrase)}\b", lower_speech) for phrase in exit_phrases):
                     speak("Goodbye! Have a wonderful day!")
                     break
+
+                # "look and <task>" vision trigger: take a photo and ask the LLM
+                look_match = re.search(r"\blook and\b\s+(.+)", user_speech, re.IGNORECASE)
+                if look_match:
+                    task = look_match.group(1).strip()
+                    if not vision_enabled:
+                        # Current model cannot process images.
+                        speak("I can't see right now")
+                        continue
+                    speak("Let me take a look.")
+                    image_path = capture_photo()
+                    if image_path is None:
+                        speak("I couldn't take a photo right now.")
+                        continue
+                    reply = generate_vision_response(llm, image_path, task)
+                    speak(reply)
+                    continue
 
                 # Generate AI reply and speak it
                 reply = generate_response(llm, user_speech)

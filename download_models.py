@@ -32,7 +32,10 @@ from model_config import (
     available_llm_keys,
     get_llm_config,
     is_llm_downloaded,
+    is_mmproj_downloaded,
+    is_vision_capable,
     llm_path,
+    mmproj_path,
     resolve_llm_key,
 )
 
@@ -57,6 +60,16 @@ def parse_args(argv=None):
         action="store_true",
         help="List available LLM models and exit.",
     )
+    parser.add_argument(
+        "--mmproj",
+        metavar="KEY",
+        help=(
+            "Download the vision projector (mmproj) for a vision-capable model "
+            "KEY, or 'all' for every vision-capable model. Required for the "
+            "'look and ...' photo feature. "
+            f"Default: {DEFAULT_LLM_MODEL}."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -65,13 +78,15 @@ def print_llms():
     for key in available_llm_keys():
         config = get_llm_config(key)
         marker = " *default" if key == DEFAULT_LLM_MODEL else ""
+        vision = " [vision]" if config.get("supports_vision", False) else ""
         status = "downloaded" if is_llm_downloaded(key) else "not downloaded"
-        print(f"  {key}{marker}")
+        print(f"  {key}{marker}{vision}")
         print(
             f"    {config['label']} | {config['size_gb']:.2f} GB | "
             f"{status} | {config['notes']}"
         )
     print("\nDownload with: python download_models.py --llm KEY")
+    print("Download a vision projector with: python download_models.py --mmproj KEY")
 
 
 def ensure_dirs():
@@ -124,6 +139,40 @@ def download_llm(model_key):
 
     # Ensure the local filename matches the registry, regardless of how
     # huggingface_hub laid out the file.
+    downloaded_path = Path(downloaded)
+    if downloaded_path != target_path:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(downloaded_path), str(target_path))
+
+    print(f"[✓] Saved: {target_path}")
+
+
+def download_mmproj(model_key):
+    """Download the vision projector (mmproj) for a vision-capable model."""
+    config = get_llm_config(model_key)
+
+    if not config.get("supports_vision", False):
+        print(
+            f"[!] {config['label']} ({model_key}) is not vision-capable; "
+            "no mmproj projector needed."
+        )
+        return
+
+    target_path = mmproj_path(model_key)
+
+    if target_path.is_file():
+        print(f"[✓] mmproj for {config['label']} already exists at: {target_path}")
+        return
+
+    from huggingface_hub import hf_hub_download
+
+    print(f"Downloading mmproj vision projector for {config['label']}...")
+    downloaded = hf_hub_download(
+        repo_id=config["mmproj_repo_id"],
+        filename=config["mmproj_filename"],
+        local_dir=str(MODELS_DIR),
+    )
+
     downloaded_path = Path(downloaded)
     if downloaded_path != target_path:
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,6 +249,16 @@ def main(argv=None):
     print("\n--- Checking / Downloading local LLM(s) ---")
     for key in llm_keys:
         download_llm(key)
+
+    print("\n--- Checking / Downloading vision projector(s) (mmproj) ---")
+    if args.mmproj and args.mmproj.strip().lower() == "all":
+        mmproj_keys = [k for k in available_llm_keys() if is_vision_capable(k)]
+    elif args.mmproj:
+        mmproj_keys = [resolve_llm_key(args.mmproj)]
+    else:
+        mmproj_keys = []
+    for key in mmproj_keys:
+        download_mmproj(key)
 
     download_piper_voices()
 

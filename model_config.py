@@ -25,6 +25,7 @@ DEFAULT_LLM_MODEL = "qwen35-2b"
 #   n_ctx           Context window to allocate at load time.
 #   size_gb         Approximate download size, for display only.
 #   notes           Short guidance used by --list-models / --list-llms.
+#   supports_vision Whether the model can process images (multimodal).
 LLM_MODELS = {
     "qwen35-2b": {
         "label": "Qwen3.5 2B Instruct",
@@ -34,6 +35,7 @@ LLM_MODELS = {
         "n_ctx": 4096,
         "size_gb": 1.28,
         "notes": "Default. Best speed/quality balance for Raspberry Pi 5.",
+        "supports_vision": False,
     },
     "gemma4-e2b": {
         "label": "Gemma 4 E2B IT (QAT)",
@@ -43,6 +45,11 @@ LLM_MODELS = {
         "n_ctx": 4096,
         "size_gb": 2.62,
         "notes": "Highest quality in the Pi tier; also supports audio and vision.",
+        "supports_vision": True,
+        # CLIP vision projector (mmproj) required by llama.cpp for image input.
+        "mmproj_repo_id": "unsloth/gemma-4-E2B-it-qat-GGUF",
+        "mmproj_filename": "mmproj-F32.gguf",
+        "mmproj_local_filename": "gemma-4-e2b-mmproj-F32.gguf",
     },
     "qwen35-4b": {
         "label": "Qwen3.5 4B Instruct",
@@ -52,6 +59,11 @@ LLM_MODELS = {
         "n_ctx": 4096,
         "size_gb": 2.74,
         "notes": "Best tutoring quality, but slow on a Pi; ideal on a Mac GPU.",
+        "supports_vision": True,
+        # CLIP vision projector (mmproj) required by llama.cpp for image input.
+        "mmproj_repo_id": "unsloth/Qwen3.5-4B-GGUF",
+        "mmproj_filename": "mmproj-F16.gguf",
+        "mmproj_local_filename": "qwen3.5-4b-mmproj-F16.gguf",
     },
     "qwen25-1.5b": {
         "label": "Qwen2.5 1.5B Instruct",
@@ -61,6 +73,7 @@ LLM_MODELS = {
         "n_ctx": 2048,
         "size_gb": 1.00,
         "notes": "Fast, proven fallback with strong math for its size.",
+        "supports_vision": False,
     },
     "llama32-1b": {
         "label": "Llama 3.2 1B Instruct",
@@ -70,8 +83,14 @@ LLM_MODELS = {
         "n_ctx": 2048,
         "size_gb": 0.81,
         "notes": "Lowest latency; weakest at math. Kept as a fallback.",
+        "supports_vision": False,
     },
 }
+
+
+def is_vision_capable(key=None):
+    """Return True if the resolved LLM model supports vision (image input)."""
+    return get_llm_config(key).get("supports_vision", False)
 
 
 def available_llm_keys():
@@ -108,6 +127,29 @@ def llm_path(key=None):
 
 def is_llm_downloaded(key=None):
     return llm_path(key).is_file()
+
+
+def mmproj_path(key=None):
+    """Return the local mmproj (vision projector) path for ``key``.
+
+    Only meaningful for vision-capable models; returns ``None`` otherwise.
+    """
+    config = get_llm_config(key)
+    if not config.get("supports_vision", False):
+        return None
+    return MODELS_DIR / config["mmproj_local_filename"]
+
+
+def is_mmproj_downloaded(key=None):
+    """Return True if the mmproj projector file exists for ``key``."""
+    path = mmproj_path(key)
+    return path is not None and path.is_file()
+
+
+def is_vision_ready(key=None):
+    """Return True if the resolved model supports vision *and* its mmproj
+    projector file is downloaded, so image input is actually usable."""
+    return is_vision_capable(key) and is_mmproj_downloaded(key)
 
 
 def resolve_llm_model_key(cli_value=None, env_value=None):

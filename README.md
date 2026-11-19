@@ -23,7 +23,7 @@ pip install -U pip
 CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python    # macOS
 # CMAKE_ARGS="-DGGML_NATIVE=on" pip install llama-cpp-python  # Raspberry Pi 5 / Linux
 
-pip install faster-whisper piper-tts sounddevice numpy
+pip install faster-whisper piper-tts sounddevice numpy opencv-python-headless
 ```
 
 `sounddevice` bundles PortAudio on macOS, so no extra install is needed there.
@@ -33,8 +33,20 @@ On Linux or a Raspberry Pi, install it first:
 sudo apt install -y libportaudio2
 ```
 
+### Camera permissions (macOS only)
+
+On macOS, OpenCV needs camera access. Before using the **"look and ..."** feature,
+grant your terminal (Terminal, iTerm2, VS Code, etc.) camera permission:
+
+1. Open **System Settings → Privacy & Security → Camera**.
+2. Enable camera access for your terminal app.
+3. Quit and reopen the terminal so the permission takes effect.
+
+Without permission, Sparky will say *"I couldn't take a photo right now."`
+
 Tested with: `faster-whisper 1.2.1`, `llama-cpp-python 0.3.36`,
-`piper-tts 1.8.0`, `sounddevice 0.5.6`, `numpy 2.5.4`.
+`piper-tts 1.8.0`, `sounddevice 0.5.6`, `numpy 2.5.4`,
+`opencv-python-headless 5.1.0`.
 
 ---
 
@@ -62,11 +74,11 @@ Already-downloaded files are skipped, so re-running is safe.
 
 | Key | Model | Size | When to use |
 |---|---|---|---|
-| `qwen35-2b` *(default)* | Qwen3.5 2B Instruct | 1.28 GB | Best speed/quality balance on a Raspberry Pi 5. |
-| `gemma4-e2b` | Gemma 4 E2B IT (QAT) | 2.62 GB | Highest quality in the Pi tier; supports audio and vision. |
-| `qwen35-4b` | Qwen3.5 4B Instruct | 2.74 GB | Best tutoring quality, but slow on a Pi; ideal on a Mac GPU. |
-| `qwen25-1.5b` | Qwen2.5 1.5B Instruct | 1.00 GB | Fast fallback with strong math for its size. |
-| `llama32-1b` | Llama 3.2 1B Instruct | 0.81 GB | Lowest latency; weakest at math. |
+| `qwen35-2b` *(default)* | Qwen3.5 2B Instruct | 1.28 GB | Best speed/quality balance on a Raspberry Pi 5. No vision. |
+| `gemma4-e2b` | Gemma 4 E2B IT (QAT) | 2.62 GB | Highest quality in the Pi tier; supports audio and vision. Needs `--mmproj` download too. |
+| `qwen35-4b` | Qwen3.5 4B Instruct | 2.74 GB | Best tutoring quality, but slow on a Pi; ideal on a Mac GPU. Supports vision. Needs `--mmproj` download too. |
+| `qwen25-1.5b` | Qwen2.5 1.5B Instruct | 1.00 GB | Fast fallback with strong math for its size. No vision. |
+| `llama32-1b` | Llama 3.2 1B Instruct | 0.81 GB | Lowest latency; weakest at math. No vision. |
 
 Model files are stored under `models/` (git-ignored).
 
@@ -80,6 +92,32 @@ python offline_robot.py
 
 Each turn records **5 seconds** of audio. Speak after `[Listening... Speak now]`.
 Say **"bye"**, **"exit"**, **"quit"**, or **"goodbye"** to stop.
+
+### "Look and ..." vision feature
+
+Say **"look and <task>"** and Sparky will take a photo with the camera and ask the
+vision-capable LLM to do something with it. For example:
+
+- "look and solve this math" → captures the problem and speaks the solution
+- "look and read this" → reads text visible in the photo
+- "look and tell me what this is" → identifies what's in the frame
+
+**Requirements:**
+- A working camera (OpenCV reads `ROBOT_CAMERA_INDEX`, default `0`).
+- A vision-capable LLM: `gemma4-e2b` or `qwen35-4b`.
+- The model's vision projector (mmproj) downloaded:
+
+```bash
+python download_models.py --llm gemma4-e2b      # LLM weights
+python download_models.py --mmproj gemma4-e2b   # vision projector
+# or grab both at once:
+python download_models.py --llm gemma4-e2b --mmproj gemma4-e2b
+```
+
+If the current model does not support vision (e.g. the default `qwen35-2b`),
+Sparky replies **"I can't see right now"** and no photo is taken.
+
+Photos are saved to the `captures/` directory (override with `ROBOT_CAPTURE_DIR`).
 
 ### Choose an LLM
 
@@ -129,6 +167,8 @@ ROBOT_VOICE_STYLE=robot_droid python offline_robot.py
 | Download one LLM | `download_models.py --llm KEY` | default model |
 | Download all LLMs | `download_models.py --llm all` | — |
 | List downloadable LLMs | `download_models.py --list-llms` | — |
+| Camera index | `ROBOT_CAMERA_INDEX` | `0` |
+| Capture directory | `ROBOT_CAPTURE_DIR` | `captures/` |
 
 For the project mission, hardware targets, and design guidelines, see
 [`PROJECT_MISSION.md`](PROJECT_MISSION.md).
