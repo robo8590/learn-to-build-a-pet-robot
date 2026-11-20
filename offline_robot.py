@@ -12,7 +12,6 @@ import unicodedata
 import wave
 from faster_whisper import WhisperModel
 from llama_cpp import Llama
-from llama_cpp.llama_chat_format import Llava15ChatHandler
 from piper import PiperVoice
 from piper.config import SynthesisConfig
 
@@ -23,13 +22,15 @@ from model_config import (
     available_llm_keys,
     get_llm_config,
     is_llm_downloaded,
+    is_mmproj_downloaded,
+    is_vision_capable,
     is_vision_ready,
     llm_path,
     mmproj_path,
     resolve_llm_model_key,
 )
 
-from camera import capture_photo
+from camera import capture_jpeg
 
 # ==========================================
 # 0. CONFIGURATION
@@ -63,6 +64,9 @@ LLM_N_THREADS = _env_int("ROBOT_LLM_THREADS", 4)
 
 # Keep spoken replies short; see the latency targets in PROJECT_MISSION.md.
 LLM_MAX_TOKENS = _env_int("ROBOT_LLM_MAX_TOKENS", 96)
+
+# Vision replies (math step-by-step) need more room than casual chat.
+VISION_MAX_TOKENS = _env_int("ROBOT_VISION_MAX_TOKENS", 256)
 
 # Initial context prompt to prime Whisper's tokenizer for natural English speech
 WHISPER_INITIAL_PROMPT = "Hello, this is a spoken conversation in English."
@@ -105,10 +109,12 @@ def preprocess_text_for_tts(text: str) -> str:
     # 1. Unicode normalization to NFC
     text = unicodedata.normalize("NFC", text)
 
-    # 2. Strip leftover markdown artifacts, bullet points, brackets, and quotes
+    # 2. Strip emojis (models sometimes emit them despite the no-emoji prompt)
+    text = re.sub(r"[\U0001F300-\U0001F9FF\U00002600-\U000027BF\U000024C2-\U0001F251]", "", text)
+    # Strip leftover markdown artifacts, bullet points, brackets, and quotes
     text = re.sub(r"[\*\#\_`~<>]", " ", text)
-    text = re.sub(r"\[.*?\]|\(.*?\)", " ", text)
-    text = re.sub(r"^[\s\-\*\•\d+\.]+\s+", "", text)  # leading bullets/numbering
+    text = re.sub(r"\[[^\]]*\]", " ", text)  # keep (parentheses): math steps
+    text = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s+", "", text)  # leading bullets/numbering
 
     # 3. Collapse multiple whitespaces
     text = re.sub(r"\s+", " ", text).strip()
@@ -374,8 +380,26 @@ def initialize_llm(model_key=None):
     chat_handler = None
     if is_vision_ready(resolved_key):
         projector = mmproj_path(resolved_key)
-        print(f"Loading vision projector: {projector}...")
-        chat_handler = Llava15ChatHandler(clip_model_path=str(projector))
+        try:
+            # MTMDChatHandler renders the GGUF's own tokenizer.chat_template,
+            # so it works for Gemma 4, Qwen3.5, and other vision families.
+            # Gemma4ChatHandler is an empty subclass of MTMDChatHandler.
+            from llama_cpp.llama_chat_format import MTMDChatHandler
+
+            print(f"Loading vision projector: {projector}...")
+            chat_handler = MTMDChatHandler(
+                clip_model_path=str(projector),
+                use_gpu=LLM_N_GPU_LAYERS != 0,
+                verbose=False,
+            )
+        except Exception as e:
+            print(f"[Vision] Warning: could not load vision projector ({e}). "
+                  "Vision will be disabled for this session.")
+    elif is_vision_capable(resolved_key):
+        print(
+            f"[Vision] disabled: mmproj projector missing for {resolved_key}. "
+            f"Run: python download_models.py --mmproj {resolved_key}"
+        )
 
     llm = Llama(
         model_path=str(path),
@@ -387,6 +411,8 @@ def initialize_llm(model_key=None):
     )
 
     vision_enabled = chat_handler is not None
+    if vision_enabled:
+        print("[Vision] enabled: image input ready.")
     return llm, vision_enabled
 
 
@@ -401,13 +427,16 @@ SYSTEM_PROMPT = (
 )
 
 VISION_SYSTEM_PROMPT = (
-    "You are Sparky, a cheerful, cute, and encouraging companion robot. "
-    "The user has shared a photo and asked you to do something with it. "
+    "You are Sparky, a cheerful, cute, and encouraging companion robot for kids. "
+    "The user shared a photo and asked you to do something with it. "
     "Answer in English with warmth and kid-friendly curiosity. "
-    "Keep answers short (1-3 sentences maximum). "
+    "If this is a math problem, read it, show two or three short steps, "
+    "then give the final answer. "
+    "Keep answers short enough to speak out loud. "
     "Never use formatting symbols, markdown, emojis, or bullet points. "
     "If the photo is not clear enough to answer, say so gently."
 )
+
 
 # ==========================================
 # 4. CORE AUDIO & INFERENCE FUNCTIONS
@@ -529,6 +558,45 @@ def transcribe_audio(whisper_model, audio_data):
         return ""
 
 
+def is_exit_command(text: str) -> bool:
+    """Return True when the whole utterance is an exit phrase.
+
+    Uses whole-utterance matching so that ``"look and read this exit sign"``
+    triggers vision instead of quitting the robot.
+    """
+    cleaned = re.sub(r"[^\w\s']", "", text or "").strip().casefold()
+    return cleaned in {"bye", "exit", "quit", "goodbye", "stop"}
+
+
+LOOK_RE = re.compile(
+    r"""^\s*
+    (?:(?:hey|hi|ok|okay)[, ]+)?
+    (?:sparky[,\s]+)?
+    (?:(?:can|could|would|will)\s+you\s+)?
+    (?:please\s+)?
+    (?:take\s+a\s+look|look)\b
+    (?:
+        (?:\s*(?:,|and)\s*|\s+at\s+(?:this|that)\b\s*(?:(?:,|and)\s*)?)
+        (?P<instruction>.*)
+      | \s*$
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def parse_look_command(text: str):
+    """Return the task instruction when ``text`` is a "look and ..." request.
+
+    Returns ``None`` when there is no look intent. The instruction may be empty
+    (caller should default to describing the photo).
+    """
+    match = LOOK_RE.match(text or "")
+    if not match:
+        return None
+    return (match.group("instruction") or "").strip()
+
+
 def generate_response(llm, user_text):
     try:
         response = llm.create_chat_completion(
@@ -548,30 +616,34 @@ def generate_response(llm, user_text):
         return "Oops! My circuits got tangled for a second. Can you say that again?"
 
 
-def image_to_data_url(image_path: str) -> str:
-    """Convert a local image file into a base64 data URL for the vision LLM."""
-    with open(image_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode("ascii")
+def image_bytes_to_data_url(image_bytes: bytes) -> str:
+    """Convert JPEG bytes into a base64 data URL for the vision LLM."""
+    b64 = base64.b64encode(image_bytes).decode("ascii")
     return f"data:image/jpeg;base64,{b64}"
 
 
-def generate_vision_response(llm, image_path: str, task: str) -> str:
-    """Send a photo plus a task to the vision-capable LLM and return the answer."""
+def generate_vision_response(llm, image_bytes: bytes, task: str) -> str:
+    """Send a photo plus a task to the vision-capable LLM and return the answer.
+
+    The image is placed first in the user message, which is the convention
+    expected by Gemma 4 and Qwen3.5 multimodal templates.
+    """
     try:
-        image_url = image_to_data_url(image_path)
+        image_url = image_bytes_to_data_url(image_bytes)
+        instruction = task or "Describe what you see in this photo."
         response = llm.create_chat_completion(
             messages=[
                 {"role": "system", "content": VISION_SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": task},
                         {"type": "image_url", "image_url": {"url": image_url}},
+                        {"type": "text", "text": instruction},
                     ],
                 },
             ],
-            temperature=0.7,
-            max_tokens=LLM_MAX_TOKENS,
+            temperature=0.25,
+            max_tokens=VISION_MAX_TOKENS,
         )
         raw_text = response["choices"][0]["message"]["content"].strip()
         # Clean markdown asterisks or quotes for clean speech
@@ -599,6 +671,14 @@ def parse_args(argv=None):
         action="store_true",
         help="List available LLM models and exit.",
     )
+    parser.add_argument(
+        "--look",
+        metavar="TASK",
+        help=(
+            "One-shot vision mode: take a photo, ask the vision LLM TASK, "
+            "speak the answer, and exit. Requires a vision-capable model."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -607,7 +687,12 @@ def print_models_table():
     for key in available_llm_keys():
         config = get_llm_config(key)
         marker = " *default" if key == DEFAULT_LLM_MODEL else ""
-        vision = " [vision]" if get_llm_config(key).get("supports_vision", False) else ""
+        if config.get("supports_vision", False):
+            vision = " [vision]"
+            if not is_mmproj_downloaded(key):
+                vision += " (mmproj missing)"
+        else:
+            vision = " [text-only]"
         status = "downloaded" if is_llm_downloaded(key) else "not downloaded"
         print(f"  {key}{marker}{vision}")
         print(
@@ -621,12 +706,28 @@ def print_models_table():
 # ==========================================
 # 6. MAIN INTERACTIVE LOOP
 # ==========================================
-if __name__ == "__main__":
-    args = parse_args()
+def _run_vision_once(llm, vision_enabled, task):
+    """Execute a single look-turn: cue, capture, answer, speak."""
+    if not vision_enabled:
+        speak("I can't see right now. Switch to a vision-capable model and try again.")
+        return
+
+    speak("Let me take a look.")
+    image_bytes = capture_jpeg()
+    if image_bytes is None:
+        speak("I couldn't take a photo right now.")
+        return
+
+    reply = generate_vision_response(llm, image_bytes, task)
+    speak(reply)
+
+
+def main(argv=None):
+    args = parse_args(argv)
 
     if args.list_models:
         print_models_table()
-        raise SystemExit(0)
+        return
 
     print("=" * 50)
     print(" Starting Sparky Robot")
@@ -638,6 +739,11 @@ if __name__ == "__main__":
     # Friendly greeting
     speak("Hello! I am Sparky, your offline robot assistant. Let's talk!")
 
+    # One-shot vision mode for debugging: capture, answer, exit.
+    if args.look is not None:
+        _run_vision_once(llm, vision_enabled, args.look)
+        return
+
     exit_phrases = ("bye", "exit", "quit", "goodbye")
 
     while True:
@@ -646,29 +752,23 @@ if __name__ == "__main__":
             user_speech = transcribe_audio(whisper_model, audio)
 
             if user_speech:
-                # Check for exit commands
-                lower_speech = user_speech.casefold()
-                if any(re.search(rf"\b{re.escape(phrase)}\b", lower_speech) for phrase in exit_phrases):
+                # "look and <task>" vision trigger: take a photo and ask the LLM.
+                # Check this BEFORE exit phrases so "look and read this exit sign"
+                # runs vision instead of quitting.
+                look_task = parse_look_command(user_speech)
+                if look_task is not None:
+                    _run_vision_once(llm, vision_enabled, look_task)
+                    continue
+
+                # Check for exit commands (whole-utterance match).
+                if is_exit_command(user_speech):
                     speak("Goodbye! Have a wonderful day!")
                     break
-
-                # "look and <task>" vision trigger: take a photo and ask the LLM
-                look_match = re.search(r"\blook and\b\s+(.+)", user_speech, re.IGNORECASE)
-                if look_match:
-                    task = look_match.group(1).strip()
-                    if not vision_enabled:
-                        # Current model cannot process images.
-                        speak("I can't see right now")
-                        continue
-                    speak("Let me take a look.")
-                    image_path = capture_photo()
-                    if image_path is None:
-                        speak("I couldn't take a photo right now.")
-                        continue
-                    reply = generate_vision_response(llm, image_path, task)
-                    speak(reply)
-                    continue
 
                 # Generate AI reply and speak it
                 reply = generate_response(llm, user_speech)
                 speak(reply)
+
+
+if __name__ == "__main__":
+    main()

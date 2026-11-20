@@ -29,13 +29,15 @@ The mission of this project is to learn and build a personal, cute, and helpful 
 ### D. Vision & "Look and ..." Capability
 - Sparky can take a photo and have the LLM act on it when the user says
   "look and <task>" (e.g. "look and solve this math").
-- Requires a vision-capable LLM (`gemma4-e2b` or `qwen35-4b`) plus its mmproj
-  vision projector downloaded via `download_models.py --mmproj <key>`.
-- Non-vision models (e.g. the default `qwen35-2b`) reply "I can't see right now"
+- Requires a vision-capable LLM (`qwen35-2b`, `qwen35-4b`, or `gemma4-e2b`)
+  plus its mmproj vision projector downloaded via `download_models.py --mmproj <key>`.
+- Non-vision models (`qwen25-1.5b`, `llama32-1b`) reply "I can't see right now"
   and take no photo, keeping the robot usable without a camera.
-- Camera: CSI camera planned for the Pi target; OpenCV reads `ROBOT_CAMERA_INDEX`
-  (default `0`) on both Mac and Pi for a single code path.
-- Captured photos are stored under `captures/` (override `ROBOT_CAPTURE_DIR`).
+- Camera: CSI camera on the Pi via `picamera2` when available, otherwise OpenCV /
+  V4L2; macOS uses OpenCV / AVFoundation. `ROBOT_CAMERA_INDEX` (default `0`)
+  selects the camera on both Mac and Pi.
+- Photos are processed in memory and not saved by default. Set
+  `ROBOT_KEEP_CAPTURES=1` to save frames under `captures/` for debugging.
 
 ---
 

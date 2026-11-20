@@ -6,9 +6,11 @@ Download the local offline models used by Sparky:
 1. Faster-Whisper (tiny.en) speech-to-text
 2. A local GGUF LLM (default: Qwen3.5 2B, see model_config.py)
 3. Piper TTS voice (en_US lessac)
+4. Vision projector (mmproj) for vision-capable LLMs
 
 By default only the default LLM is downloaded. Use ``--llm`` to fetch another
-model, or ``--llm all`` to fetch every registered model.
+model, or ``--llm all`` to fetch every registered model. mmproj projectors are
+downloaded automatically alongside any vision-capable LLM.
 
 Examples:
     python download_models.py
@@ -78,7 +80,12 @@ def print_llms():
     for key in available_llm_keys():
         config = get_llm_config(key)
         marker = " *default" if key == DEFAULT_LLM_MODEL else ""
-        vision = " [vision]" if config.get("supports_vision", False) else ""
+        if config.get("supports_vision", False):
+            vision = " [vision]"
+            if not is_mmproj_downloaded(key):
+                vision += " (mmproj missing)"
+        else:
+            vision = " [text-only]"
         status = "downloaded" if is_llm_downloaded(key) else "not downloaded"
         print(f"  {key}{marker}{vision}")
         print(
@@ -119,32 +126,34 @@ def download_whisper():
     print(f"[✓] English Whisper model saved to: {WHISPER_EN_DIR}")
 
 
-def download_llm(model_key):
+def download_llm(model_key, with_mmproj=True):
     """Download a single registered LLM by key."""
     config = get_llm_config(model_key)
     target_path = llm_path(model_key)
 
     if target_path.is_file():
         print(f"[✓] {config['label']} already exists at: {target_path}")
-        return
+    else:
+        from huggingface_hub import hf_hub_download
 
-    from huggingface_hub import hf_hub_download
+        print(f"Downloading {config['label']} ({config['size_gb']:.2f} GB)...")
+        downloaded = hf_hub_download(
+            repo_id=config["repo_id"],
+            filename=config["hf_filename"],
+            local_dir=str(MODELS_DIR),
+        )
 
-    print(f"Downloading {config['label']} ({config['size_gb']:.2f} GB)...")
-    downloaded = hf_hub_download(
-        repo_id=config["repo_id"],
-        filename=config["hf_filename"],
-        local_dir=str(MODELS_DIR),
-    )
+        # Ensure the local filename matches the registry, regardless of how
+        # huggingface_hub laid out the file.
+        downloaded_path = Path(downloaded)
+        if downloaded_path != target_path:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(downloaded_path), str(target_path))
 
-    # Ensure the local filename matches the registry, regardless of how
-    # huggingface_hub laid out the file.
-    downloaded_path = Path(downloaded)
-    if downloaded_path != target_path:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(downloaded_path), str(target_path))
+        print(f"[✓] Saved: {target_path}")
 
-    print(f"[✓] Saved: {target_path}")
+    if with_mmproj and config.get("supports_vision", False):
+        download_mmproj(model_key)
 
 
 def download_mmproj(model_key):
@@ -166,7 +175,10 @@ def download_mmproj(model_key):
 
     from huggingface_hub import hf_hub_download
 
-    print(f"Downloading mmproj vision projector for {config['label']}...")
+    print(
+        f"Downloading mmproj vision projector for {config['label']} "
+        f"({config.get('mmproj_size_gb', 0):.2f} GB)..."
+    )
     downloaded = hf_hub_download(
         repo_id=config["mmproj_repo_id"],
         filename=config["mmproj_filename"],

@@ -26,6 +26,8 @@ DEFAULT_LLM_MODEL = "qwen35-2b"
 #   size_gb         Approximate download size, for display only.
 #   notes           Short guidance used by --list-models / --list-llms.
 #   supports_vision Whether the model can process images (multimodal).
+#   mmproj_*        Vision projector (mmproj) required by llama.cpp for image
+#                   input. Only present on vision-capable models.
 LLM_MODELS = {
     "qwen35-2b": {
         "label": "Qwen3.5 2B Instruct",
@@ -35,7 +37,12 @@ LLM_MODELS = {
         "n_ctx": 4096,
         "size_gb": 1.28,
         "notes": "Default. Best speed/quality balance for Raspberry Pi 5.",
-        "supports_vision": False,
+        "supports_vision": True,
+        "mmproj_repo_id": "unsloth/Qwen3.5-2B-GGUF",
+        # F16 mmproj: BF16 crashes the Metal CLIP encoder on macOS; F16 works.
+        "mmproj_filename": "mmproj-F16.gguf",
+        "mmproj_local_filename": "qwen3.5-2b-mmproj-F16.gguf",
+        "mmproj_size_gb": 0.67,
     },
     "gemma4-e2b": {
         "label": "Gemma 4 E2B IT (QAT)",
@@ -48,8 +55,10 @@ LLM_MODELS = {
         "supports_vision": True,
         # CLIP vision projector (mmproj) required by llama.cpp for image input.
         "mmproj_repo_id": "unsloth/gemma-4-E2B-it-qat-GGUF",
-        "mmproj_filename": "mmproj-F32.gguf",
-        "mmproj_local_filename": "gemma-4-e2b-mmproj-F32.gguf",
+        # F16 mmproj: BF16 reproducibly aborts the Metal CLIP encoder on macOS.
+        "mmproj_filename": "mmproj-F16.gguf",
+        "mmproj_local_filename": "gemma-4-e2b-mmproj-F16.gguf",
+        "mmproj_size_gb": 0.99,
     },
     "qwen35-4b": {
         "label": "Qwen3.5 4B Instruct",
@@ -64,6 +73,7 @@ LLM_MODELS = {
         "mmproj_repo_id": "unsloth/Qwen3.5-4B-GGUF",
         "mmproj_filename": "mmproj-F16.gguf",
         "mmproj_local_filename": "qwen3.5-4b-mmproj-F16.gguf",
+        "mmproj_size_gb": 0.68,
     },
     "qwen25-1.5b": {
         "label": "Qwen2.5 1.5B Instruct",
@@ -86,11 +96,6 @@ LLM_MODELS = {
         "supports_vision": False,
     },
 }
-
-
-def is_vision_capable(key=None):
-    """Return True if the resolved LLM model supports vision (image input)."""
-    return get_llm_config(key).get("supports_vision", False)
 
 
 def available_llm_keys():
@@ -144,6 +149,11 @@ def is_mmproj_downloaded(key=None):
     """Return True if the mmproj projector file exists for ``key``."""
     path = mmproj_path(key)
     return path is not None and path.is_file()
+
+
+def is_vision_capable(key=None):
+    """Return True if the resolved LLM model supports vision (image input)."""
+    return get_llm_config(key).get("supports_vision", False)
 
 
 def is_vision_ready(key=None):
