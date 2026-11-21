@@ -58,7 +58,8 @@ The mission of this project is to learn and build a personal, cute, and helpful 
 | Cooling | Active cooler | Sustained inference reaches the 80–85 °C throttle range without it. |
 | Audio input | USB microphone | Pi 5 has no 3.5 mm jack; an I2S mic HAT is a planned upgrade. |
 | Audio output | USB speaker or USB sound card | Alternatively HDMI audio; a dedicated output device keeps Piper latency low. |
-| Future expansion | CSI camera, GPIO/PCA9685 servos, optional AI HAT+ | The AI HAT+ does not help LLM decode (slower than the CPU) but can accelerate vision. |
+| Camera | Pi CSI camera via `picamera2` (OpenCV fallback) | Powers the "look and ..." vision feature. |
+| Future expansion | GPIO/PCA9685 servos, optional AI HAT+ | The AI HAT+ does not help LLM decode (slower than the CPU) but can accelerate vision. |
 
 **Memory budget (Raspberry Pi 5, 8 GB):**
 
@@ -68,6 +69,7 @@ The mission of this project is to learn and build a personal, cute, and helpful 
 | Whisper tiny.en (int8) | ~0.3 GB |
 | Piper voice | ~0.15 GB |
 | LLM, 1B–2B Q4_K_M | 1.4–2.2 GB |
+| Vision projector (mmproj, vision models only) | 0.7–1.0 GB |
 | Headroom (KV cache, sensors, camera) | ≥ 3 GB |
 
 **Portability rule:** the same code must run on both profiles. Only `ROBOT_LLM_GPU_LAYERS`, `ROBOT_LLM_THREADS`, and the selected model key should change between Mac and Pi.

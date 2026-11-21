@@ -8,9 +8,9 @@ Download the local offline models used by Sparky:
 3. Piper TTS voice (en_US lessac)
 4. Vision projector (mmproj) for vision-capable LLMs
 
-By default only the default LLM is downloaded. Use ``--llm`` to fetch another
-model, or ``--llm all`` to fetch every registered model. mmproj projectors are
-downloaded automatically alongside any vision-capable LLM.
+By default the default LLM and its mmproj are downloaded. Use ``--llm`` to
+fetch another model, or ``--llm all`` to fetch every registered model. mmproj
+projectors are downloaded automatically alongside any vision-capable LLM.
 
 Examples:
     python download_models.py
@@ -68,8 +68,7 @@ def parse_args(argv=None):
         help=(
             "Download the vision projector (mmproj) for a vision-capable model "
             "KEY, or 'all' for every vision-capable model. Required for the "
-            "'look and ...' photo feature. "
-            f"Default: {DEFAULT_LLM_MODEL}."
+            "'look and ...' photo feature."
         ),
     )
     return parser.parse_args(argv)

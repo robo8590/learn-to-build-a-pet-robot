@@ -622,6 +622,29 @@ def image_bytes_to_data_url(image_bytes: bytes) -> str:
     return f"data:image/jpeg;base64,{b64}"
 
 
+def _vision_completion(llm, image_bytes: bytes, task: str) -> str:
+    """Run a vision completion, propagating errors to the caller."""
+    image_url = image_bytes_to_data_url(image_bytes)
+    instruction = task or "Describe what you see in this photo."
+    response = llm.create_chat_completion(
+        messages=[
+            {"role": "system", "content": VISION_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                    {"type": "text", "text": instruction},
+                ],
+            },
+        ],
+        temperature=0.25,
+        max_tokens=VISION_MAX_TOKENS,
+    )
+    raw_text = response["choices"][0]["message"]["content"].strip()
+    # Clean markdown asterisks or quotes for clean speech
+    return re.sub(r"[\*\#\_`]", "", raw_text)
+
+
 def generate_vision_response(llm, image_bytes: bytes, task: str) -> str:
     """Send a photo plus a task to the vision-capable LLM and return the answer.
 
@@ -629,26 +652,7 @@ def generate_vision_response(llm, image_bytes: bytes, task: str) -> str:
     expected by Gemma 4 and Qwen3.5 multimodal templates.
     """
     try:
-        image_url = image_bytes_to_data_url(image_bytes)
-        instruction = task or "Describe what you see in this photo."
-        response = llm.create_chat_completion(
-            messages=[
-                {"role": "system", "content": VISION_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                        {"type": "text", "text": instruction},
-                    ],
-                },
-            ],
-            temperature=0.25,
-            max_tokens=VISION_MAX_TOKENS,
-        )
-        raw_text = response["choices"][0]["message"]["content"].strip()
-        # Clean markdown asterisks or quotes for clean speech
-        cleaned_text = re.sub(r"[\*\#\_`]", "", raw_text)
-        return cleaned_text
+        return _vision_completion(llm, image_bytes, task)
     except Exception as e:
         print(f"Vision Generation Error: {e}")
         return "I had trouble looking at that photo. Can you try again?"
@@ -677,6 +681,14 @@ def parse_args(argv=None):
         help=(
             "One-shot vision mode: take a photo, ask the vision LLM TASK, "
             "speak the answer, and exit. Requires a vision-capable model."
+        ),
+    )
+    parser.add_argument(
+        "--check-vision",
+        action="store_true",
+        help=(
+            "Load the selected model, run one tiny in-memory image through the "
+            "vision projector, print the result, and exit."
         ),
     )
     return parser.parse_args(argv)
@@ -722,6 +734,46 @@ def _run_vision_once(llm, vision_enabled, task):
     speak(reply)
 
 
+def check_vision(model_key=None):
+    """Run one tiny image through the selected model's projector.
+
+    Returns 0 on success and 1 when vision is unavailable or the call fails.
+    This catches projector incompatibilities before a live conversation.
+    """
+    llm, vision_enabled = initialize_llm(model_key)
+    if not vision_enabled:
+        print("[Vision] FAIL: no usable vision projector for this model.")
+        return 1
+
+    try:
+        import cv2
+        import numpy as np
+
+        image = np.full((128, 320, 3), 255, dtype=np.uint8)
+        cv2.putText(
+            image,
+            "3 + 4 = ?",
+            (12, 80),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.4,
+            (0, 0, 0),
+            4,
+        )
+        ok, buf = cv2.imencode(".jpg", image)
+        if not ok:
+            print("[Vision] FAIL: could not encode the test image.")
+            return 1
+
+        reply = _vision_completion(
+            llm, buf.tobytes(), "Solve the math problem. Answer briefly."
+        )
+        print(f"[Vision] OK: {reply}")
+        return 0
+    except Exception as e:
+        print(f"[Vision] FAIL: {e}")
+        return 1
+
+
 def main(argv=None):
     args = parse_args(argv)
 
@@ -729,22 +781,24 @@ def main(argv=None):
         print_models_table()
         return
 
+    if args.check_vision:
+        raise SystemExit(check_vision(args.model))
+
     print("=" * 50)
     print(" Starting Sparky Robot")
     print("=" * 50)
 
     llm, vision_enabled = initialize_llm(args.model)
-    whisper_model = initialize_whisper()
 
-    # Friendly greeting
-    speak("Hello! I am Sparky, your offline robot assistant. Let's talk!")
-
-    # One-shot vision mode for debugging: capture, answer, exit.
+    # One-shot vision mode: no microphone, Whisper, or greeting needed.
     if args.look is not None:
         _run_vision_once(llm, vision_enabled, args.look)
         return
 
-    exit_phrases = ("bye", "exit", "quit", "goodbye")
+    whisper_model = initialize_whisper()
+
+    # Friendly greeting
+    speak("Hello! I am Sparky, your offline robot assistant. Let's talk!")
 
     while True:
         audio = record_audio()

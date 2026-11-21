@@ -53,7 +53,8 @@ Tested with: `faster-whisper 1.2.1`, `llama-cpp-python 0.3.36`,
 ## 1. Download models — `download_models.py`
 
 Run this once before starting the robot. It downloads the Whisper STT model,
-the default LLM, and the English Piper voice into `models/`.
+the default LLM, its vision projector, and the English Piper voice into
+`models/`.
 
 ```bash
 python download_models.py
@@ -63,10 +64,10 @@ python download_models.py
 
 | Command | What it does |
 |---|---|
-| `python download_models.py` | Download the default set (Whisper + default LLM + Piper voice). |
+| `python download_models.py` | Download the default set (Whisper + default LLM + its mmproj + Piper voice). |
 | `python download_models.py --list-llms` | Show available model keys, sizes, and download status. |
 | `python download_models.py --llm qwen35-2b` | Download one specific LLM. |
-| `python download_models.py --llm all` | Download every registered LLM (about 8.5 GB). |
+| `python download_models.py --llm all` | Download every registered LLM and vision projector (about 10.8 GB). |
 
 Already-downloaded files are skipped, so re-running is safe.
 
@@ -75,8 +76,8 @@ Already-downloaded files are skipped, so re-running is safe.
 | Key | Model | Size | When to use |
 |---|---|---|---|
 | `qwen35-2b` *(default)* | Qwen3.5 2B Instruct | 1.28 GB | Best speed/quality balance on a Raspberry Pi 5. Supports vision with mmproj. |
-| `gemma4-e2b` | Gemma 4 E2B IT (QAT) | 2.62 GB | Highest quality in the Pi tier; supports audio and vision. Needs `--mmproj` download too. |
-| `qwen35-4b` | Qwen3.5 4B Instruct | 2.74 GB | Best tutoring quality, but slow on a Pi; ideal on a Mac GPU. Supports vision. Needs `--mmproj` download too. |
+| `gemma4-e2b` | Gemma 4 E2B IT (QAT) | 2.62 GB | Highest quality in the Pi tier; supports audio and vision. mmproj downloads automatically. |
+| `qwen35-4b` | Qwen3.5 4B Instruct | 2.74 GB | Best tutoring quality, but slow on a Pi; ideal on a Mac GPU. Supports vision; mmproj downloads automatically. |
 | `qwen25-1.5b` | Qwen2.5 1.5B Instruct | 1.00 GB | Fast fallback with strong math for its size. No vision. |
 | `llama32-1b` | Llama 3.2 1B Instruct | 0.81 GB | Lowest latency; weakest at math. No vision. |
 
@@ -131,8 +132,18 @@ Photos are processed in memory and not saved by default. Set
 python offline_robot.py --model gemma4-e2b --look "solve this math"
 ```
 
-Captures one photo, answers, speaks, and exits. Useful for iterating on the
-vision path without the microphone.
+Captures one photo, answers, speaks, and exits. It does not load Whisper or
+play the greeting, so it also works without a microphone.
+
+### Check the vision projector
+
+```bash
+python offline_robot.py --model gemma4-e2b --check-vision
+```
+
+Loads the selected model, runs one tiny in-memory image through the projector,
+prints the answer, and exits. Use this after changing models or downloading a
+projector. It exits nonzero if vision is unavailable.
 
 ### Choose an LLM
 
@@ -176,6 +187,7 @@ ROBOT_VOICE_STYLE=robot_droid python offline_robot.py
 | LLM model | `--model KEY` / `ROBOT_LLM_MODEL` | `qwen35-2b` |
 | List models | `--list-models` | — |
 | One-shot look | `--look TASK` | — |
+| Check vision | `--check-vision` | — |
 | Voice style | `ROBOT_VOICE_STYLE` | `cute_companion` |
 | GPU layers | `ROBOT_LLM_GPU_LAYERS` | `-1` (Mac Metal); use `0` on a Pi |
 | CPU threads | `ROBOT_LLM_THREADS` | `4` |
@@ -185,11 +197,13 @@ ROBOT_VOICE_STYLE=robot_droid python offline_robot.py
 | Download all LLMs | `download_models.py --llm all` | — |
 | List downloadable LLMs | `download_models.py --list-llms` | — |
 | Camera index | `ROBOT_CAMERA_INDEX` | `0` |
-| Camera backend | `ROBOT_CAMERA_BACKEND` | `auto` |
+| Camera backend | `ROBOT_CAMERA_BACKEND` | `auto` (`auto`, `picamera2`, `opencv`) |
+| Capture size | `ROBOT_CAMERA_WIDTH` x `ROBOT_CAMERA_HEIGHT` | `1280` x `720` |
+| Warmup frames | `ROBOT_CAMERA_WARMUP_FRAMES` | `5` |
 | Capture directory | `ROBOT_CAPTURE_DIR` | `captures/` |
 | Max image side | `ROBOT_IMAGE_MAX_DIM` | `768` |
 | JPEG quality | `ROBOT_IMAGE_JPEG_QUALITY` | `85` |
-| Keep captures | `ROBOT_KEEP_CAPTURES` | `0` |
+| Keep captures | `ROBOT_KEEP_CAPTURES` | `0` (`1`/`true`/`yes`/`on`) |
 
 For the project mission, hardware targets, and design guidelines, see
 [`PROJECT_MISSION.md`](PROJECT_MISSION.md).

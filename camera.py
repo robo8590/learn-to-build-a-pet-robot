@@ -33,9 +33,14 @@ CAPTURE_HEIGHT = _env_int("ROBOT_CAMERA_HEIGHT", "720")
 WARMUP_FRAMES = _env_int("ROBOT_CAMERA_WARMUP_FRAMES", "5")
 # Max image side length sent to the vision model. Smaller = faster inference,
 # fewer image tokens. Use 512 on a Pi, 768 on a Mac.
-IMAGE_MAX_DIM = _env_int("ROBOT_IMAGE_MAX_DIM", "768")
-IMAGE_JPEG_QUALITY = _env_int("ROBOT_IMAGE_JPEG_QUALITY", "85")
-KEEP_CAPTURES = os.getenv("ROBOT_KEEP_CAPTURES", "0").strip() in ("1", "true", "yes")
+IMAGE_MAX_DIM = max(64, _env_int("ROBOT_IMAGE_MAX_DIM", "768"))
+IMAGE_JPEG_QUALITY = min(100, max(1, _env_int("ROBOT_IMAGE_JPEG_QUALITY", "85")))
+KEEP_CAPTURES = os.getenv("ROBOT_KEEP_CAPTURES", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 def _import_cv2():
@@ -77,8 +82,10 @@ def _open_picamera2():
     try:
         picam2 = Picamera2()
         # Use a still-friendly configuration.
+        # Request RGB888 explicitly: the default stream format varies by
+        # platform and may include an alpha channel.
         config = picam2.create_still_configuration(
-            main={"size": (CAPTURE_WIDTH, CAPTURE_HEIGHT)}
+            main={"size": (CAPTURE_WIDTH, CAPTURE_HEIGHT), "format": "RGB888"}
         )
         picam2.configure(config)
         picam2.start()
@@ -99,9 +106,10 @@ def _capture_opencv(cap, cv2):
 
 def _capture_picamera2(picam2):
     """Grab a single frame from picamera2 as a BGR numpy array."""
-    import numpy as np
-
     rgb = picam2.capture_array()
+    # RGB888 should be 3 channels, but some builds return alpha anyway.
+    if rgb.ndim == 3 and rgb.shape[2] == 4:
+        rgb = rgb[:, :, :3]
     # picamera2 delivers RGB; OpenCV expects BGR.
     return rgb[:, :, ::-1].copy()
 
@@ -147,21 +155,28 @@ def capture_jpeg(max_dim: int | None = None, quality: int | None = None):
         max_dim = IMAGE_MAX_DIM
     if quality is None:
         quality = IMAGE_JPEG_QUALITY
+    max_dim = max(64, max_dim)
+    quality = min(100, max(1, quality))
 
-    # Try picamera2 first on Pi (CSI camera), fall back to OpenCV.
+    backend = CAMERA_BACKEND
+    if backend not in ("auto", "picamera2", "opencv"):
+        print(f"[Camera] Unknown ROBOT_CAMERA_BACKEND={backend!r}; using auto.")
+        backend = "auto"
+
+    # picamera2 is tried first for Pi CSI cameras; OpenCV is the fallback.
     picam2 = None
     cap = None
     cv2 = None
 
-    backend = CAMERA_BACKEND
-    if backend == "auto":
+    if backend in ("auto", "picamera2"):
         picam2 = _open_picamera2()
-        if picam2 is not None:
-            backend = "picamera2"
+        if picam2 is None and backend == "picamera2":
+            print("[Camera] picamera2 backend requested but unavailable.")
+
     if picam2 is None and backend in ("auto", "opencv"):
         cap, cv2 = _open_opencv_camera()
-        if cap is not None:
-            backend = "opencv"
+        if cap is None and backend == "opencv":
+            print("[Camera] OpenCV backend requested but unavailable.")
 
     if picam2 is None and cap is None:
         print("[Camera] No camera backend available (install opencv-python or picamera2).")
