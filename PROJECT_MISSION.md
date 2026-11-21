@@ -81,7 +81,7 @@ The mission of this project is to learn and build a personal, cute, and helpful 
 
 ### 3.3 Core Tech Stack
 - **STT**: `faster-whisper` tiny.en with int8 quantization (`base.en` optional for better child-speech accuracy).
-- **LLM**: local GGUF models through `llama-cpp-python`. Default **Qwen3.5 2B Q4_K_M**; quality option **Gemma 4 E2B IT (QAT)**; fallback **Llama 3.2 1B**. Selected with `ROBOT_LLM_MODEL` or `--model`; the registry lives in `model_config.py`.
+- **LLM**: local GGUF models through `llama-cpp-python`. Default **Qwen3.5 2B Q4_K_M**; quality option **Gemma 4 E2B IT (QAT)**; fallback **Llama 3.2 1B**. Selected with `ROBOT_LLM_MODEL` or `--model`; the registry lives in `sparky/config/llm_registry.py`.
 - **TTS**: `piper-tts` en_US-lessac-medium, with pitch shift and robot DSP.
 - **Audio I/O**: `sounddevice` + `numpy`; 16 kHz capture, 22.05 kHz playback.
 

@@ -4,7 +4,7 @@ download_models.py
 Download the local offline models used by Sparky:
 
 1. Faster-Whisper (tiny.en) speech-to-text
-2. A local GGUF LLM (default: Qwen3.5 2B, see model_config.py)
+2. A local GGUF LLM (default: Qwen3.5 2B, see sparky/config/llm_registry.py)
 3. Piper TTS voice (en_US lessac)
 4. Vision projector (mmproj) for vision-capable LLMs
 
@@ -26,11 +26,8 @@ import argparse
 import shutil
 from pathlib import Path
 
-from model_config import (
+from sparky.config.llm_registry import (
     DEFAULT_LLM_MODEL,
-    MODELS_DIR,
-    PIPER_VOICE_PATH,
-    WHISPER_MODEL_PATH,
     available_llm_keys,
     get_llm_config,
     is_llm_downloaded,
@@ -40,6 +37,7 @@ from model_config import (
     mmproj_path,
     resolve_llm_key,
 )
+from sparky.config.paths import MODELS_DIR, PIPER_VOICE_PATH, WHISPER_MODEL_PATH
 
 PIPER_DIR = PIPER_VOICE_PATH.parent
 WHISPER_EN_DIR = WHISPER_MODEL_PATH

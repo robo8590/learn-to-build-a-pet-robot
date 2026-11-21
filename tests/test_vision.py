@@ -3,14 +3,19 @@ import os
 import unittest
 from unittest import mock
 
-import camera
 import offline_robot
-from model_config import (
+import sparky.vision.camera as camera
+import sparky.vision.check as vision_check
+import sparky.vision.turn as vision_turn
+from sparky.commands import is_exit_command, parse_look_command
+from sparky.config.llm_registry import (
     available_llm_keys,
     get_llm_config,
     is_vision_capable,
     is_vision_ready,
 )
+from sparky.llm.vision_llm import image_bytes_to_data_url
+from sparky.tts.text import preprocess_text_for_tts
 
 
 class LookCommandTests(unittest.TestCase):
@@ -24,7 +29,7 @@ class LookCommandTests(unittest.TestCase):
             "let me look",
         ):
             with self.subTest(text=text):
-                self.assertIsNone(offline_robot.parse_look_command(text))
+                self.assertIsNone(parse_look_command(text))
 
     def test_trigger_forms(self):
         cases = {
@@ -36,60 +41,60 @@ class LookCommandTests(unittest.TestCase):
         }
         for text, expected in cases.items():
             with self.subTest(text=text):
-                self.assertEqual(offline_robot.parse_look_command(text), expected)
+                self.assertEqual(parse_look_command(text), expected)
 
     def test_bare_look_and_at_this(self):
-        self.assertEqual(offline_robot.parse_look_command("look"), "")
-        self.assertEqual(offline_robot.parse_look_command("take a look"), "")
-        self.assertEqual(offline_robot.parse_look_command("look at this"), "")
+        self.assertEqual(parse_look_command("look"), "")
+        self.assertEqual(parse_look_command("take a look"), "")
+        self.assertEqual(parse_look_command("look at this"), "")
 
 
 class ExitCommandTests(unittest.TestCase):
     def test_exit_phrases(self):
         for text in ("bye", "Bye!", "exit", "quit", "goodbye", "stop"):
             with self.subTest(text=text):
-                self.assertTrue(offline_robot.is_exit_command(text))
+                self.assertTrue(is_exit_command(text))
 
     def test_look_sentence_is_not_exit(self):
-        self.assertFalse(offline_robot.is_exit_command("look and read this exit sign"))
-        self.assertFalse(offline_robot.is_exit_command("exit sign"))
+        self.assertFalse(is_exit_command("look and read this exit sign"))
+        self.assertFalse(is_exit_command("exit sign"))
 
     def test_look_runs_before_exit(self):
         text = "look and read this exit sign"
-        self.assertIsNotNone(offline_robot.parse_look_command(text))
-        self.assertFalse(offline_robot.is_exit_command(text))
+        self.assertIsNotNone(parse_look_command(text))
+        self.assertFalse(is_exit_command(text))
 
 
 class TtsTests(unittest.TestCase):
     def test_parentheses_preserved(self):
         text = "12 times (10 plus 2) is 96."
-        self.assertEqual(offline_robot.preprocess_text_for_tts(text), text)
+        self.assertEqual(preprocess_text_for_tts(text), text)
 
     def test_leading_math_number_preserved(self):
         self.assertEqual(
-            offline_robot.preprocess_text_for_tts("12 x 8 = 96."),
+            preprocess_text_for_tts("12 x 8 = 96."),
             "12 x 8 = 96.",
         )
 
     def test_bracket_annotations_removed(self):
         self.assertEqual(
-            offline_robot.preprocess_text_for_tts("[laughs] 3 + 4 = 7"),
+            preprocess_text_for_tts("[laughs] 3 + 4 = 7"),
             "3 + 4 = 7.",
         )
 
     def test_list_prefix_removed(self):
         self.assertEqual(
-            offline_robot.preprocess_text_for_tts("1. First step"),
+            preprocess_text_for_tts("1. First step"),
             "First step.",
         )
         self.assertEqual(
-            offline_robot.preprocess_text_for_tts("2) Second step"),
+            preprocess_text_for_tts("2) Second step"),
             "Second step.",
         )
 
     def test_emoji_removed(self):
         self.assertEqual(
-            offline_robot.preprocess_text_for_tts("Great job! 🎉"),
+            preprocess_text_for_tts("Great job! 🎉"),
             "Great job!",
         )
 
@@ -132,7 +137,7 @@ class CameraEnvTests(unittest.TestCase):
         importlib.reload(camera)
 
     def test_data_url_prefix(self):
-        url = offline_robot.image_bytes_to_data_url(b"\xff\xd8\xff")
+        url = image_bytes_to_data_url(b"\xff\xd8\xff")
         self.assertTrue(url.startswith("data:image/jpeg;base64,"))
 
 
@@ -147,7 +152,7 @@ class StartupOrderTests(unittest.TestCase):
                 "initialize_whisper",
                 side_effect=AssertionError("Whisper should not load"),
             ) as whisper,
-            mock.patch.object(offline_robot, "_run_vision_once") as run,
+            mock.patch.object(vision_turn, "run_vision_once") as run,
             mock.patch.object(offline_robot, "speak") as speak,
             mock.patch("builtins.print"),
         ):
@@ -158,7 +163,7 @@ class StartupOrderTests(unittest.TestCase):
 
     def test_check_vision_exits_before_model_or_whisper(self):
         with (
-            mock.patch.object(offline_robot, "check_vision", return_value=0) as check,
+            mock.patch.object(vision_check, "check_vision", return_value=0) as check,
             mock.patch.object(offline_robot, "initialize_llm") as init,
             mock.patch.object(offline_robot, "initialize_whisper") as whisper,
         ):
@@ -170,29 +175,63 @@ class StartupOrderTests(unittest.TestCase):
         whisper.assert_not_called()
 
 
+class VisionTurnTests(unittest.TestCase):
+    def test_disabled_vision_speaks_fallback(self):
+        with (
+            mock.patch.object(vision_turn, "speak") as speak,
+            mock.patch.object(vision_turn, "capture_jpeg") as capture,
+        ):
+            vision_turn.run_vision_once(object(), False, "read this")
+        speak.assert_called_once()
+        capture.assert_not_called()
+
+    def test_missing_photo_speaks_fallback(self):
+        with (
+            mock.patch.object(vision_turn, "speak") as speak,
+            mock.patch.object(vision_turn, "capture_jpeg", return_value=None),
+        ):
+            vision_turn.run_vision_once(object(), True, "read this")
+        speak.assert_any_call("I couldn't take a photo right now.")
+
+    def test_success_speaks_vision_answer(self):
+        with (
+            mock.patch.object(vision_turn, "speak") as speak,
+            mock.patch.object(vision_turn, "capture_jpeg", return_value=b"jpeg"),
+            mock.patch.object(
+                vision_turn,
+                "generate_vision_response",
+                return_value="It is a cat.",
+            ) as generate,
+        ):
+            vision_turn.run_vision_once(object(), True, "describe")
+        generate.assert_called_once()
+        speak.assert_any_call("Let me take a look.")
+        speak.assert_any_call("It is a cat.")
+
+
 class CheckVisionTests(unittest.TestCase):
     def test_missing_projector_fails(self):
         with (
             mock.patch.object(
-                offline_robot, "initialize_llm", return_value=(object(), False)
+                vision_check, "initialize_llm", return_value=(object(), False)
             ),
             mock.patch("builtins.print"),
         ):
-            self.assertEqual(offline_robot.check_vision(), 1)
+            self.assertEqual(vision_check.check_vision(), 1)
 
     def test_completion_error_fails(self):
         with (
             mock.patch.object(
-                offline_robot, "initialize_llm", return_value=(object(), True)
+                vision_check, "initialize_llm", return_value=(object(), True)
             ),
             mock.patch.object(
-                offline_robot,
+                vision_check,
                 "_vision_completion",
                 side_effect=RuntimeError("projector failed"),
             ),
             mock.patch("builtins.print"),
         ):
-            self.assertEqual(offline_robot.check_vision(), 1)
+            self.assertEqual(vision_check.check_vision(), 1)
 
 
 class CameraBackendTests(unittest.TestCase):

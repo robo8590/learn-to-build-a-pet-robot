@@ -1,19 +1,13 @@
-"""Shared paths and local LLM registry for Sparky.
+"""Local LLM registry for Sparky.
 
-Both ``download_models.py`` and ``offline_robot.py`` import this module so that
+Both ``download_models.py`` and the application import this module so that
 model keys, file names, and download sources stay in sync.
 
 Add a new model by appending an entry to ``LLM_MODELS``; no other code changes
 are required.
 """
 
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent
-MODELS_DIR = BASE_DIR / "models"
-
-WHISPER_MODEL_PATH = MODELS_DIR / "whisper" / "en"
-PIPER_VOICE_PATH = MODELS_DIR / "piper" / "en_US-lessac-medium.onnx"
+from .paths import MODELS_DIR
 
 DEFAULT_LLM_MODEL = "qwen35-2b"
 

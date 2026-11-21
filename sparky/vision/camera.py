@@ -13,28 +13,20 @@ import os
 import time
 from pathlib import Path
 
-
-def _env_int(name: str, default: int) -> int:
-    """Read an integer environment variable, falling back to a default."""
-    try:
-        return int(os.getenv(name, str(default)))
-    except (ValueError, TypeError):
-        return default
-
-
-BASE_DIR = Path(__file__).resolve().parent
+from sparky.config.paths import BASE_DIR
+from sparky.config.settings import env_int
 
 # ---- Configuration (env-overridable, consistent with the portability rule) ----
 CAMERA_BACKEND = os.getenv("ROBOT_CAMERA_BACKEND", "auto").strip().lower()
-CAMERA_INDEX = _env_int("ROBOT_CAMERA_INDEX", "0")
+CAMERA_INDEX = env_int("ROBOT_CAMERA_INDEX", 0)
 CAPTURE_DIR = Path(os.getenv("ROBOT_CAPTURE_DIR", str(BASE_DIR / "captures")))
-CAPTURE_WIDTH = _env_int("ROBOT_CAMERA_WIDTH", "1280")
-CAPTURE_HEIGHT = _env_int("ROBOT_CAMERA_HEIGHT", "720")
-WARMUP_FRAMES = _env_int("ROBOT_CAMERA_WARMUP_FRAMES", "5")
+CAPTURE_WIDTH = env_int("ROBOT_CAMERA_WIDTH", 1280)
+CAPTURE_HEIGHT = env_int("ROBOT_CAMERA_HEIGHT", 720)
+WARMUP_FRAMES = env_int("ROBOT_CAMERA_WARMUP_FRAMES", 5)
 # Max image side length sent to the vision model. Smaller = faster inference,
 # fewer image tokens. Use 512 on a Pi, 768 on a Mac.
-IMAGE_MAX_DIM = max(64, _env_int("ROBOT_IMAGE_MAX_DIM", "768"))
-IMAGE_JPEG_QUALITY = min(100, max(1, _env_int("ROBOT_IMAGE_JPEG_QUALITY", "85")))
+IMAGE_MAX_DIM = max(64, env_int("ROBOT_IMAGE_MAX_DIM", 768))
+IMAGE_JPEG_QUALITY = min(100, max(1, env_int("ROBOT_IMAGE_JPEG_QUALITY", 85)))
 KEEP_CAPTURES = os.getenv("ROBOT_KEEP_CAPTURES", "0").strip().lower() in (
     "1",
     "true",

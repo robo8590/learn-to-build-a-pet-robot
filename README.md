@@ -8,6 +8,22 @@ through `piper-tts` with a robot voice effect.
 microphone → faster-whisper → local LLM (llama.cpp) → Piper TTS → speaker
 ```
 
+## Project layout
+
+```text
+sparky/
+  asr/          microphone capture and faster-whisper transcription
+  tts/          text cleanup, Piper voice, robot effects, and playback
+  llm/          local text and vision inference
+  vision/       camera capture, one-shot vision turn, projector check
+  config/       model paths, LLM registry, and runtime settings
+  commands.py   exit and "look and ..." intent parsing
+  cli.py        command-line arguments and model listing
+
+offline_robot.py    application entry point and main conversation loop
+download_models.py  model downloader
+```
+
 ## Before you start
 
 - Python 3.11+ (tested with 3.12.6)
