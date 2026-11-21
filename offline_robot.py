@@ -13,6 +13,7 @@ from sparky.asr.microphone import record_audio
 from sparky.asr.whisper import initialize_whisper, transcribe_audio
 from sparky.cli import parse_args, print_models_table
 from sparky.commands import is_exit_command, parse_look_command
+from sparky.llm.conversation import Conversation
 from sparky.llm.loader import initialize_llm
 from sparky.llm.text_llm import generate_response
 from sparky.tts.speaker import speak
@@ -46,6 +47,9 @@ def main(argv=None):
     # Friendly greeting
     speak("Hello! I am Sparky, your offline robot assistant. Let's talk!")
 
+    # One in-memory conversation for the whole session; nothing is persisted.
+    conversation = Conversation()
+
     while True:
         audio = record_audio()
         if audio is not None:
@@ -57,7 +61,9 @@ def main(argv=None):
                 # runs vision instead of quitting the robot.
                 look_task = parse_look_command(user_speech)
                 if look_task is not None:
-                    vision_turn.run_vision_once(llm, vision_enabled, look_task)
+                    vision_turn.run_vision_once(
+                        llm, vision_enabled, look_task, conversation
+                    )
                     continue
 
                 # Check for exit commands (whole-utterance match).
@@ -65,8 +71,8 @@ def main(argv=None):
                     speak("Goodbye! Have a wonderful day!")
                     break
 
-                # Generate AI reply and speak it
-                reply = generate_response(llm, user_speech)
+                # Generate AI reply and speak it, remembering this turn
+                reply = generate_response(llm, user_speech, conversation)
                 speak(reply)
 
 

@@ -32,5 +32,9 @@ LLM_N_THREADS = env_int("ROBOT_LLM_THREADS", 4)
 # Keep spoken replies short; see the latency targets in PROJECT_MISSION.md.
 LLM_MAX_TOKENS = env_int("ROBOT_LLM_MAX_TOKENS", 96)
 
+# In-memory conversation memory: number of recent user/assistant turns to keep
+# so Sparky can refer back to earlier parts of the session. Nothing is saved.
+LLM_MEMORY_MAX_TURNS = env_int("ROBOT_MEMORY_MAX_TURNS", 8)
+
 # Vision replies (math step-by-step) need more room than casual chat.
 VISION_MAX_TOKENS = env_int("ROBOT_VISION_MAX_TOKENS", 256)

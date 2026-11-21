@@ -120,6 +120,16 @@ python offline_robot.py
 Speak after `[Listening... Speak now]`. Sparky listens until you stop talking,
 then replies. Say **"bye"**, **"exit"**, **"quit"**, or **"goodbye"** to stop.
 
+### Conversation memory
+
+Sparky remembers the most recent turns of the current session, so it can use
+things you told it earlier (like your name) in later replies. "Look and ..."
+turns are remembered too, as short text questions and answers, so Sparky can
+refer back to what it saw — no photo or image data is ever stored. Memory lives
+only in RAM: it is cleared when the program stops and nothing is saved to disk.
+Use `ROBOT_MEMORY_MAX_TURNS` to change how many turns are remembered
+(default `8`).
+
 ### "Look and ..." vision feature
 
 Say **"look and <task>"** and Sparky will take a photo with the camera and ask
@@ -208,6 +218,7 @@ ROBOT_VOICE_STYLE=robot_droid python offline_robot.py
 | GPU layers | `ROBOT_LLM_GPU_LAYERS` | `-1` (Mac Metal); use `0` on a Pi |
 | CPU threads | `ROBOT_LLM_THREADS` | `4` |
 | Max reply tokens | `ROBOT_LLM_MAX_TOKENS` | `96` |
+| Remembered turns | `ROBOT_MEMORY_MAX_TURNS` | `8` |
 | Max vision tokens | `ROBOT_VISION_MAX_TOKENS` | `256` |
 | Download one LLM | `download_models.py --llm KEY` | default model |
 | Download all LLMs | `download_models.py --llm all` | — |
