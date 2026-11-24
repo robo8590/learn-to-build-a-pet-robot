@@ -34,8 +34,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
   the vision gate, and server lifecycle.
 - [x] **A0.5a** Apply the review corrections (gate ordering, Jetson asset set,
   credentials, TLS/Ollama notes, SLO assumptions, flag verification).
-- [ ] **A0.5b** Add a prominent "README is being rewritten" banner to
+- [x] **A0.5b** Add a prominent "README is being rewritten" banner to
   `README.md` pointing to the new docs (full rewrite in A13).
+  _(2026-11-24)_
 
 **Acceptance:** docs exist, agree with each other, and reflect the HTTP-only
 design with no backend switch.

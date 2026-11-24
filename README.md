@@ -1,5 +1,17 @@
 # Sparky — Offline Companion & Tutor Robot
 
+> [!WARNING]
+> **README is being rewritten.** This document still describes the old
+> in-process `llama.cpp` design. Sparky is moving to a single HTTP-only,
+> OpenAI-compatible LLM server (`ROBOT_REMOTE_*` settings), with no in-process
+> fallback. For the current design, see:
+>
+> - [`PROJECT_MISSION.md`](PROJECT_MISSION.md) — goals, deployments, privacy
+> - [`ARCHITECTURE.md`](ARCHITECTURE.md) — modules, config, provider, SLOs
+> - [`TASKS.md`](TASKS.md) — roadmapped work
+>
+> A full README rewrite is tracked as **A13**.
+
 Sparky is a fully offline, English-speaking robot. Speech is transcribed with
 `faster-whisper`, answered by a local GGUF language model, and spoken back
 through `piper-tts` with a robot voice effect.
