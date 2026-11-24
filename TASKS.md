@@ -42,10 +42,15 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
 design with no backend switch.
 
 ### A1. Baseline and guardrails
-- [ ] **A1.1** Run the existing test suite and record the result.
-- [ ] **A1.2** Record baseline latency and memory on the dev Mac for a chat
+- [x] **A1.1** Run the existing test suite and record the result.
+  _(2026-11-24: 46 tests OK in 0.535 s; see `docs/baseline.md`.)_
+- [x] **A1.2** Record baseline latency and memory on the dev Mac for a chat
   turn and a vision turn using the current in-process path.
-- [ ] **A1.3** Note in the commit what behavior must not regress.
+  _(2026-11-24: `qwen35-2b` + `qwen35-4b`; harness in
+  `scripts/benchmark_local.py`; results in `docs/baseline.md` and
+  `docs/baseline.json`.)_
+- [x] **A1.3** Note in the commit what behavior must not regress.
+  _(2026-11-24: checklist in `docs/baseline.md`.)_
 
 **Acceptance:** a baseline exists so the provider refactor can be proven
 behavior-preserving, including HTTP overhead comparison later (A10.4/A11.2).

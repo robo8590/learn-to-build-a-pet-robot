@@ -1,0 +1,126 @@
+{
+  "environment": {
+    "generated_at": "2026-11-24T09:49:15+00:00",
+    "commit": "00a0c83",
+    "platform": "macOS-27.2.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "python": "3.12.6",
+    "llama_cpp": "0.3.36"
+  },
+  "image": {
+    "path": "captures/sparky_1795160189.jpg",
+    "source": "captures/",
+    "bytes": 182819,
+    "width": 1280,
+    "height": 720
+  },
+  "prompts": {
+    "chat": "What is two plus two? Answer in one short sentence.",
+    "vision": "What is in this photo? Answer in one short sentence."
+  },
+  "models": [
+    {
+      "key": "qwen35-2b",
+      "load_seconds": 5.801053542003501,
+      "vision_enabled": true,
+      "peak_rss_after_load_mb": 1513.3125,
+      "chat": {
+        "runs": 3,
+        "elapsed_seconds": {
+          "median": 0.5262926669965964,
+          "min": 0.4922218339925166,
+          "max": 0.5875498749956023
+        },
+        "completion_tokens_median": 20,
+        "tokens_per_second": 38.00166951619211,
+        "cold_seconds": 1.8481549169955542,
+        "replies": [
+          "Two plus two is four! That is how you get a total of four with two plus two.",
+          "Two plus two equals four! It's a happy number for us both to discover together.",
+          "Two plus two is four, and it is so fun to learn that simple math problems become easy adventures for us!"
+        ],
+        "completion_tokens": [
+          20,
+          18,
+          23
+        ],
+        "peak_rss_mb": 2218.328125
+      },
+      "vision": {
+        "runs": 3,
+        "elapsed_seconds": {
+          "median": 4.292802791998838,
+          "min": 4.182667583008879,
+          "max": 4.29316812500474
+        },
+        "completion_tokens_median": 19,
+        "tokens_per_second": 4.426012775479284,
+        "cold_seconds": 4.366954791999888,
+        "replies": [
+          "A fluffy white flower with sparkles is being held up close to the camera by a person.",
+          "A cute white flower with sparkles is being held up close to the camera by a person.",
+          "A cute white flower with sparkles held up by a hand."
+        ],
+        "completion_tokens": [
+          19,
+          19,
+          13
+        ],
+        "peak_rss_mb": 2224.546875
+      },
+      "peak_rss_mb": 2224.546875
+    },
+    {
+      "key": "qwen35-4b",
+      "load_seconds": 1.6497123329900205,
+      "vision_enabled": true,
+      "peak_rss_after_load_mb": 3100.0,
+      "chat": {
+        "runs": 3,
+        "elapsed_seconds": {
+          "median": 0.9650263329967856,
+          "min": 0.9288880419917405,
+          "max": 1.1210159170004772
+        },
+        "completion_tokens_median": 16,
+        "tokens_per_second": 16.57985844833241,
+        "cold_seconds": 1.6647064999997383,
+        "replies": [
+          "Two plus two equals four! That makes four cute little friends when you put two and two together.",
+          "Two plus two makes four! Isn't that super easy to figure out?",
+          "Two plus two equals four, just like counting four little stars in the sky!"
+        ],
+        "completion_tokens": [
+          20,
+          15,
+          16
+        ],
+        "peak_rss_mb": 3808.109375
+      },
+      "vision": {
+        "runs": 3,
+        "elapsed_seconds": {
+          "median": 7.712090667002485,
+          "min": 7.001472374991863,
+          "max": 8.15597637501196
+        },
+        "completion_tokens_median": 43,
+        "tokens_per_second": 5.57566059019287,
+        "cold_seconds": 6.842684124989319,
+        "replies": [
+          "Oh, this is a beautiful flower made from tissue paper with little shiny beads on it! It looks like a special craft.",
+          "Hello! It looks like a beautiful, handmade flower made from sheer fabric or paper, with little shiny gems on its petals. It's being held up in front of a person's face. Isn't it pretty?",
+          "Hello! This photo shows a beautiful, sparkly flower made from what looks like a crinkled, translucent material, maybe even a piece of fabric or paper, with tiny shiny gems on it. It's being held up in front of two people who are smiling!"
+        ],
+        "completion_tokens": [
+          25,
+          43,
+          54
+        ],
+        "peak_rss_mb": 3808.109375
+      },
+      "peak_rss_mb": 3808.109375
+    }
+  ]
+}
