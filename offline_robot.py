@@ -13,8 +13,9 @@ from sparky.asr.microphone import record_audio
 from sparky.asr.whisper import initialize_whisper, transcribe_audio
 from sparky.cli import parse_args, print_models_table
 from sparky.commands import is_exit_command, parse_look_command
+from sparky.config.runtime import ConfigError
+from sparky.llm.backends.factory import initialize_llm
 from sparky.llm.conversation import Conversation
-from sparky.llm.loader import initialize_llm
 from sparky.llm.text_llm import generate_response
 from sparky.tts.speaker import speak
 from sparky.vision import check as vision_check
@@ -29,13 +30,20 @@ def main(argv=None):
         return
 
     if args.check_vision:
-        raise SystemExit(vision_check.check_vision(args.model))
+        try:
+            code = vision_check.check_vision(args)
+        except ConfigError as exc:
+            raise SystemExit(f"Configuration error: {exc}") from exc
+        raise SystemExit(code)
 
     print("=" * 50)
     print(" Starting Sparky Robot")
     print("=" * 50)
 
-    llm, vision_enabled = initialize_llm(args.model)
+    try:
+        llm, vision_enabled = initialize_llm(args)
+    except ConfigError as exc:
+        raise SystemExit(f"Configuration error: {exc}") from exc
 
     # One-shot vision mode: no microphone, Whisper, or greeting needed.
     if args.look is not None:

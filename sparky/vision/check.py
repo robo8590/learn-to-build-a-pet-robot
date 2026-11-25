@@ -1,16 +1,16 @@
 """Diagnostic check for the selected model's vision projector."""
 
-from sparky.llm.loader import initialize_llm
+from sparky.llm.backends.factory import initialize_llm
 from sparky.llm.vision_llm import _vision_completion
 
 
-def check_vision(model_key=None):
-    """Run one tiny image through the selected model's projector.
+def check_vision(args=None):
+    """Send one tiny image to the vision-capable server.
 
     Returns 0 on success and 1 when vision is unavailable or the call fails.
-    This catches projector incompatibilities before a live conversation.
+    This catches server/projector problems before a live conversation.
     """
-    llm, vision_enabled = initialize_llm(model_key)
+    llm, vision_enabled = initialize_llm(args)
     if not vision_enabled:
         print("[Vision] FAIL: no usable vision projector for this model.")
         return 1

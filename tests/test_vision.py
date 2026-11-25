@@ -170,7 +170,7 @@ class StartupOrderTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 offline_robot.main(["--check-vision"])
         self.assertEqual(raised.exception.code, 0)
-        check.assert_called_once_with(None)
+        check.assert_called_once_with(mock.ANY)
         init.assert_not_called()
         whisper.assert_not_called()
 
