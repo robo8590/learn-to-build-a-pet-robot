@@ -25,6 +25,10 @@ OK
 Wall time was ~2.1 s. The run emits harmless duplicate-`libavdevice` Objective-C
 warnings from `av`/`opencv` on macOS; no test fails.
 
+> **Historical note:** `scripts/benchmark_local.py` was removed along with the
+> in-process GGUF path. The numbers below are the frozen baseline for future
+> HTTP comparisons; a remote benchmark will replace the harness.
+
 ## Benchmark method
 
 ```bash

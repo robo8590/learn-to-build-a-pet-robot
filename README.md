@@ -48,11 +48,11 @@ the default run also fetches the client assets. Explicit asset selectors are
 planned for A13.
 
 Sparky is a fully offline, English-speaking robot. Speech is transcribed with
-`faster-whisper`, answered by a local GGUF language model, and spoken back
+`faster-whisper`, answered by an OpenAI-compatible LLM server, and spoken back
 through `piper-tts` with a robot voice effect.
 
 ```
-microphone → faster-whisper → local LLM (llama.cpp) → Piper TTS → speaker
+microphone → faster-whisper → LLM server → Piper TTS → speaker
 ```
 
 ## Project layout
@@ -61,7 +61,7 @@ microphone → faster-whisper → local LLM (llama.cpp) → Piper TTS → speake
 sparky/
   asr/          microphone capture and faster-whisper transcription
   tts/          text cleanup, Piper voice, robot effects, and playback
-  llm/          local text and vision inference
+  llm/          HTTP provider and text/vision inference
   vision/       camera capture, one-shot vision turn, projector check
   config/       model paths, LLM registry, and runtime settings
   commands.py   exit and "look and ..." intent parsing
@@ -81,10 +81,6 @@ download_models.py  model downloader
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-
-# llama.cpp bindings are compiled locally, so this takes a few minutes.
-CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python    # macOS
-# CMAKE_ARGS="-DGGML_NATIVE=on" pip install llama-cpp-python  # Raspberry Pi 5 / Linux
 
 pip install faster-whisper piper-tts sounddevice numpy opencv-python-headless
 ```
@@ -107,9 +103,8 @@ grant your terminal (Terminal, iTerm2, VS Code, etc.) camera permission:
 
 Without permission, Sparky will say *"I couldn't take a photo right now."*
 
-Tested with: `faster-whisper 1.2.1`, `llama-cpp-python 0.3.36`,
-`piper-tts 1.8.0`, `sounddevice 0.5.6`, `numpy 2.5.4`,
-`opencv-python-headless 5.1.0`.
+Tested with: `faster-whisper 1.2.1`, `piper-tts 1.8.0`,
+`sounddevice 0.5.6`, `numpy 2.5.4`, `opencv-python-headless 5.1.0`.
 
 ---
 
@@ -267,8 +262,6 @@ ROBOT_VOICE_STYLE=robot_droid python offline_robot.py
 | One-shot look | `--look TASK` | — |
 | Check vision | `--check-vision` | — |
 | Voice style | `ROBOT_VOICE_STYLE` | `cute_companion` |
-| GPU layers (legacy local path) | `ROBOT_LLM_GPU_LAYERS` → server `-ngl` | `-1` (Mac Metal); use `0` on a Pi |
-| CPU threads (legacy local path) | `ROBOT_LLM_THREADS` → server `--threads` | `4` |
 | Max reply tokens | `ROBOT_LLM_MAX_TOKENS` | `96` |
 | Remembered turns | `ROBOT_MEMORY_MAX_TURNS` | `8` |
 | Max vision tokens | `ROBOT_VISION_MAX_TOKENS` | `256` |

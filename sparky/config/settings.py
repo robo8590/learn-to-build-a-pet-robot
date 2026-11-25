@@ -25,12 +25,6 @@ def env_float(name: str, default: float) -> float:
 #   - "natural": pure, unmodified Piper voice (no pitch shift, no DSP)
 ROBOT_VOICE_STYLE = os.getenv("ROBOT_VOICE_STYLE", "cute_companion").strip().lower()
 
-# Legacy in-process path only: these are server flags (-ngl / --threads) in the
-# HTTP-only design and are removed along with the local loader in A4.6.
-# On a Raspberry Pi 5, set ROBOT_LLM_GPU_LAYERS=0.
-LLM_N_GPU_LAYERS = env_int("ROBOT_LLM_GPU_LAYERS", -1)
-LLM_N_THREADS = env_int("ROBOT_LLM_THREADS", 4)
-
 # Keep spoken replies short; see the latency targets in PROJECT_MISSION.md.
 LLM_MAX_TOKENS = env_int("ROBOT_LLM_MAX_TOKENS", 96)
 

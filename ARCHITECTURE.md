@@ -6,9 +6,9 @@ On the Jetson that server runs on the same machine over loopback; on the Pi it
 runs on a LAN or cloud host. Only the server URL, model name, and credentials
 differ between deployments. The app itself contains no in-process LLM.
 
-This is a design document. Some modules described here are not yet implemented,
-and the migration keeps a working in-process path until remote vision is
-proven (see §14). See [`TASKS.md`](TASKS.md) for execution order and status.
+This is a design document. The in-process LLM path has been removed; remaining
+work is hardening and validation. See [`TASKS.md`](TASKS.md) for execution order
+and status.
 
 ## 1. Goals and Non-Goals
 
@@ -98,7 +98,6 @@ sparky/
     text.py                 text cleanup for speech
   llm/
     conversation.py         bounded in-memory conversation history
-    loader.py               in-process GGUF + mmproj loading
     text_llm.py             text chat completion
     vision_llm.py           VLM chat completion
     prompts.py              system prompts
@@ -109,7 +108,7 @@ sparky/
   config/
     settings.py             env-driven runtime settings
     paths.py                model paths
-    llm_registry.py         local GGUF registry
+    llm_registry.py         GGUF/mmproj inventory for server provisioning
   commands.py               exit / "look and ..." parsing
   cli.py                    argument parsing and model listing
 
@@ -118,8 +117,8 @@ tests/
   test_vision.py
 ```
 
-Today everything is local-GGUF. The provider and server work below replaces
-that path.
+The app now talks to the HTTP provider described below; the local GGUF path is
+gone.
 
 ## 4. Target Module Layout
 
@@ -448,7 +447,8 @@ unsupported by server / vision OK (with model name).
 
 ## 14. Migration Plan (gated)
 
-The local in-process path is retained until remote vision is proven:
+The local in-process path has been removed. The sequence below records how the
+migration was staged:
 
 1. Documentation and baseline (this doc, mission, task list, tests).
 2. `RuntimeConfig` and settings; no backend switch.
@@ -461,8 +461,8 @@ The local in-process path is retained until remote vision is proven:
 7. Wire callers behind the provider; rewrite existing test mocks.
 8. Harden the server lifecycle (systemd, readiness, warm-up, tuning,
    version pin) — TASKS A5.
-9. Only after the gate passes: remove `LocalGGUFProvider`,
-   `llama-cpp-python`, and in-process loader code.
+9. Remove `LocalGGUFProvider`, `llama-cpp-python`, and the in-process loader
+   code (done; the legacy settings and local benchmark script went with it).
 10. Validate on Pi and Jetson; update docs.
 11. Add skills (piano, singing, stories, calls) behind the router.
 12. Optional navigation.
