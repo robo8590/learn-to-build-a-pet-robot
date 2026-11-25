@@ -12,6 +12,41 @@
 >
 > A full README rewrite is tracked as **A13**.
 
+### HTTP-only configuration (in progress)
+
+This section describes the configuration introduced in A2. The setup steps
+below still describe the legacy in-process path until the A13 rewrite. All
+deployments talk to an OpenAI-compatible LLM server over HTTP; the
+`ROBOT_REMOTE_*` prefix means "over HTTP", including the Jetson's loopback
+server. There is no backend switch and no local fallback.
+
+| Variable | CLI flag | Default | Meaning |
+|---|---|---|---|
+| `ROBOT_REMOTE_URL` | `--remote-url` | `http://127.0.0.1:8080/v1` | LLM server base URL |
+| `ROBOT_REMOTE_MODEL` | `--remote-model` | — | Server-side model id |
+| `ROBOT_REMOTE_API_KEY` | `--remote-api-key` | — | Bearer token |
+| `ROBOT_REMOTE_TIMEOUT` | `--remote-timeout` | `60` | Per-request timeout (seconds) |
+| `ROBOT_REMOTE_MAX_RETRIES` | `--remote-max-retries` | `2` | Transient-failure retries |
+| `ROBOT_REMOTE_VERIFY_TLS` | `--remote-verify-tls` / `--no-remote-verify-tls` | `true` | Verify TLS certificate |
+
+Precedence is **CLI → environment → default**. `--model` is accepted as an
+alias for `--remote-model` (it becomes the server-side model id once the
+provider is wired in A7). If the model is unset, Sparky queries `/v1/models`
+and adopts the id only when the server advertises exactly one; otherwise it
+fails fast and asks you to set `ROBOT_REMOTE_MODEL`.
+
+A non-loopback URL requires **HTTPS and an API key**. For a self-signed LAN
+certificate, install the CA on the client or terminate TLS at a reverse proxy;
+Ollama's built-in auth is limited, so prefer llama.cpp server beyond loopback.
+Secrets are never logged.
+
+**Client vs server assets:** the Pi 5 client needs only Whisper (`tiny.en`) and
+the Piper voice. The Jetson needs both of those *and* the server assets (GGUF
+model + mmproj vision projector). A dedicated LAN server needs GGUF + mmproj
+only. `download_models.py --llm KEY` and `--mmproj KEY` fetch server assets;
+the default run also fetches the client assets. Explicit asset selectors are
+planned for A13.
+
 Sparky is a fully offline, English-speaking robot. Speech is transcribed with
 `faster-whisper`, answered by a local GGUF language model, and spoken back
 through `piper-tts` with a robot voice effect.
@@ -204,6 +239,11 @@ On a Raspberry Pi 5, disable GPU offload (the Pi has no usable GPU backend):
 ROBOT_LLM_GPU_LAYERS=0 python offline_robot.py
 ```
 
+`ROBOT_LLM_GPU_LAYERS` and `ROBOT_LLM_THREADS` are legacy **local-path** settings,
+not app settings for the HTTP server. On the server they correspond to
+`-ngl` / `--threads` (see `ARCHITECTURE.md` §7); they remain here only until the
+local path is removed in A4.6. `ROBOT_LLM_BACKEND` no longer exists.
+
 ### Choose a voice style
 
 ```bash
@@ -227,8 +267,8 @@ ROBOT_VOICE_STYLE=robot_droid python offline_robot.py
 | One-shot look | `--look TASK` | — |
 | Check vision | `--check-vision` | — |
 | Voice style | `ROBOT_VOICE_STYLE` | `cute_companion` |
-| GPU layers | `ROBOT_LLM_GPU_LAYERS` | `-1` (Mac Metal); use `0` on a Pi |
-| CPU threads | `ROBOT_LLM_THREADS` | `4` |
+| GPU layers (legacy local path) | `ROBOT_LLM_GPU_LAYERS` → server `-ngl` | `-1` (Mac Metal); use `0` on a Pi |
+| CPU threads (legacy local path) | `ROBOT_LLM_THREADS` → server `--threads` | `4` |
 | Max reply tokens | `ROBOT_LLM_MAX_TOKENS` | `96` |
 | Remembered turns | `ROBOT_MEMORY_MAX_TURNS` | `8` |
 | Max vision tokens | `ROBOT_VISION_MAX_TOKENS` | `256` |

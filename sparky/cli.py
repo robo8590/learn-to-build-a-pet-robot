@@ -18,7 +18,56 @@ def parse_args(argv=None):
     parser.add_argument(
         "--model",
         metavar="KEY",
-        help="LLM model to load (overrides the ROBOT_LLM_MODEL env var).",
+        help=(
+            "LLM model to load today; alias for --remote-model once the HTTP "
+            "provider is wired in (A7)."
+        ),
+    )
+    parser.add_argument(
+        "--remote-url",
+        dest="remote_url",
+        metavar="URL",
+        help="LLM server base URL (overrides ROBOT_REMOTE_URL).",
+    )
+    parser.add_argument(
+        "--remote-model",
+        dest="remote_model",
+        metavar="ID",
+        help="Server-side model id (overrides ROBOT_REMOTE_MODEL).",
+    )
+    parser.add_argument(
+        "--remote-api-key",
+        dest="remote_api_key",
+        metavar="KEY",
+        help="Bearer token for the LLM server (overrides ROBOT_REMOTE_API_KEY).",
+    )
+    parser.add_argument(
+        "--remote-timeout",
+        dest="remote_timeout",
+        type=float,
+        metavar="SECONDS",
+        help="Per-request timeout (overrides ROBOT_REMOTE_TIMEOUT).",
+    )
+    parser.add_argument(
+        "--remote-max-retries",
+        dest="remote_max_retries",
+        type=int,
+        metavar="N",
+        help="Transient-failure retries (overrides ROBOT_REMOTE_MAX_RETRIES).",
+    )
+    tls = parser.add_mutually_exclusive_group()
+    tls.add_argument(
+        "--remote-verify-tls",
+        dest="remote_verify_tls",
+        action="store_true",
+        default=None,
+        help="Verify the server TLS certificate (overrides ROBOT_REMOTE_VERIFY_TLS).",
+    )
+    tls.add_argument(
+        "--no-remote-verify-tls",
+        dest="remote_verify_tls",
+        action="store_false",
+        help="Disable TLS certificate verification (not recommended off loopback).",
     )
     parser.add_argument(
         "--list-models",

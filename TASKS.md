@@ -56,21 +56,30 @@ design with no backend switch.
 behavior-preserving, including HTTP overhead comparison later (A10.4/A11.2).
 
 ### A2. Runtime configuration (no backend switch)
-- [ ] **A2.1** Add `sparky/config/runtime.py` with a `RuntimeConfig` dataclass
+- [x] **A2.1** Add `sparky/config/runtime.py` with a `RuntimeConfig` dataclass
   resolved as CLI → env → default. No profiles and no backend switch.
-- [ ] **A2.2** Make `ROBOT_REMOTE_URL` (default `http://127.0.0.1:8080/v1`) and
+  _(2026-11-25: plus `--remote-*` CLI flags.)_
+- [x] **A2.2** Make `ROBOT_REMOTE_URL` (default `http://127.0.0.1:8080/v1`) and
   `ROBOT_REMOTE_MODEL` the LLM location settings. If the model is unset and the
   server advertises exactly one at `/v1/models`, auto-detect it.
-- [ ] **A2.3** Add `ROBOT_REMOTE_API_KEY`, `ROBOT_REMOTE_TIMEOUT`,
+  _(2026-11-25.)_
+- [x] **A2.3** Add `ROBOT_REMOTE_API_KEY`, `ROBOT_REMOTE_TIMEOUT`,
   `ROBOT_REMOTE_MAX_RETRIES`, `ROBOT_REMOTE_VERIFY_TLS`.
-- [ ] **A2.4** Require an API key and HTTPS for any non-loopback URL; document
+  _(2026-11-25.)_
+- [x] **A2.4** Require an API key and HTTPS for any non-loopback URL; document
   installing a self-signed CA or using a reverse proxy.
-- [ ] **A2.5** Remove `ROBOT_LLM_BACKEND`, `ROBOT_LLM_GPU_LAYERS`, and
+  _(2026-11-25: documented in README.)_
+- [x] **A2.5** Remove `ROBOT_LLM_BACKEND`, `ROBOT_LLM_GPU_LAYERS`, and
   `ROBOT_LLM_THREADS` from app settings; document them as server flags.
-- [ ] **A2.6** Fail fast on invalid/missing settings; never log secrets.
-- [ ] **A2.7** Unit tests for precedence, defaults, and validation.
-- [ ] **A2.8** Document the client-assets vs server-assets split in
+  _(2026-11-25: `ROBOT_LLM_BACKEND` does not exist; GPU/thread flags documented
+  as server flags and kept in settings for the legacy loader until A4.6.)_
+- [x] **A2.6** Fail fast on invalid/missing settings; never log secrets.
+  _(2026-11-25: `ConfigError`, `repr=False` API key, redacted view.)_
+- [x] **A2.7** Unit tests for precedence, defaults, and validation.
+  _(2026-11-25: 17 new tests in `tests/test_runtime_config.py`.)_
+- [x] **A2.8** Document the client-assets vs server-assets split in
   `download_models.py` help/README.
+  _(2026-11-25: docs only; no downloader behavior change.)_
 
 **Acceptance:** `RuntimeConfig` fully determines behavior; bad config produces
 a clear startup error; Pi provisions client assets only and Jetson provisions

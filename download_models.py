@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """
-download_models.py
-Download the local offline models used by Sparky:
+download_models.py — provision Sparky's client and server model assets.
 
-1. Faster-Whisper (tiny.en) speech-to-text
-2. A local GGUF LLM (default: Qwen3.5 2B, see sparky/config/llm_registry.py)
-3. Piper TTS voice (en_US lessac)
-4. Vision projector (mmproj) for vision-capable LLMs
+Two asset sets exist (see ARCHITECTURE.md §5.3):
 
-By default the default LLM and its mmproj are downloaded. Use ``--llm`` to
-fetch another model, or ``--llm all`` to fetch every registered model. mmproj
-projectors are downloaded automatically alongside any vision-capable LLM.
+  Client assets — needed on every deployment, including the Pi 5:
+    1. Faster-Whisper tiny.en speech-to-text
+    2. Piper TTS voice (en_US lessac)
+
+  Server assets — needed only by the Jetson's loopback LLM server or a
+  dedicated LAN server:
+    3. A GGUF LLM (default: Qwen3.5 2B; see sparky/config/llm_registry.py)
+    4. Vision projector (mmproj) for vision-capable LLMs
+
+The Pi client never downloads or loads a GGUF model. The default run fetches
+both sets; use ``--llm`` / ``--mmproj`` to select server assets. Explicit
+``--assets`` selectors are planned for A13.
 
 Examples:
-    python download_models.py
-    python download_models.py --list-llms
+    python download_models.py                  # both sets (Jetson)
+    python download_models.py --list-llms      # server asset inventory
     python download_models.py --llm gemma4-e2b
     python download_models.py --llm all
 
@@ -46,6 +51,11 @@ WHISPER_EN_DIR = WHISPER_MODEL_PATH
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description="Download the offline models used by Sparky.",
+        epilog=(
+            "Asset split: the Pi 5 client needs Whisper + Piper only; the Jetson "
+            "needs those plus GGUF + mmproj for its loopback server; a LAN server "
+            "needs GGUF + mmproj only."
+        ),
     )
     parser.add_argument(
         "--llm",
