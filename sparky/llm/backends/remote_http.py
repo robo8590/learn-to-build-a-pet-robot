@@ -1,9 +1,10 @@
 """OpenAI-compatible HTTP provider (happy path).
 
 This is the first slice of the HTTP-only migration. It intentionally skips
-retries, SSE streaming, and readiness polling: those are follow-up tasks in
-``TASKS.md`` (A4/A5/A6). What it does provide is a working chat *and* vision
-path against any server that implements ``POST /v1/chat/completions``.
+retries, SSE streaming, and readiness polling: those are follow-ups to be
+sequenced from the current code and hands-on testing. What it does provide is a
+working chat *and* vision path against any server that implements
+``POST /v1/chat/completions``.
 """
 
 from __future__ import annotations

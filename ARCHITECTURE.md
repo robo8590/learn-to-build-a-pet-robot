@@ -7,8 +7,9 @@ runs on a LAN or cloud host. Only the server URL, model name, and credentials
 differ between deployments. The app itself contains no in-process LLM.
 
 This is a design document. The in-process LLM path has been removed; remaining
-work is hardening and validation. See [`TASKS.md`](TASKS.md) for execution order
-and status.
+work is hardening and validation. Work proceeds from the current code and
+hands-on (user-acceptance) testing: implement the happy path first, then update
+this document only as real gaps surface.
 
 ## 1. Goals and Non-Goals
 
@@ -454,17 +455,15 @@ migration was staged:
 2. `RuntimeConfig` and settings; no backend switch.
 3. `LLMProvider` + factory.
 4. Add `RemoteHTTPProvider` **alongside** the current local path.
-5. Build and launch a pinned llama.cpp server on the Jetson (TASKS A4).
+5. Build and launch a pinned llama.cpp server on the Jetson.
 6. **GATE**: prove chat, streaming, and **vision** against that server with the
-   real GGUF + mmproj. If vision fails, apply the abort criteria in
-   `TASKS.md` A4.4 and keep the local path.
+   real GGUF + mmproj. If vision fails, keep the local path and revisit the
+   server choice before deleting anything.
 7. Wire callers behind the provider; rewrite existing test mocks.
 8. Harden the server lifecycle (systemd, readiness, warm-up, tuning,
-   version pin) — TASKS A5.
+   version pin).
 9. Remove `LocalGGUFProvider`, `llama-cpp-python`, and the in-process loader
    code (done; the legacy settings and local benchmark script went with it).
 10. Validate on Pi and Jetson; update docs.
 11. Add skills (piano, singing, stories, calls) behind the router.
 12. Optional navigation.
-
-See [`TASKS.md`](TASKS.md) for the ordered, checkable task list.

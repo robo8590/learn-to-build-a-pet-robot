@@ -212,5 +212,6 @@ minimal configuration (OS Lite, pygame, no navigation); 8 GB is recommended.
   Jetson that server simply runs on the same machine.
 
 For module-level details, data flows, and the server lifecycle, see
-[`ARCHITECTURE.md`](ARCHITECTURE.md). For the execution plan, see
-[`TASKS.md`](TASKS.md).
+[`ARCHITECTURE.md`](ARCHITECTURE.md). Work proceeds from the current code and
+hands-on (user-acceptance) testing: implement the happy path first, then update
+these documents only as real gaps surface.

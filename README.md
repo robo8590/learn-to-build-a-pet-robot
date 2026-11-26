@@ -16,8 +16,8 @@ The app has **no in-process LLM** and no local-model fallback. On the Jetson or
 Mac the server runs on loopback; on a Pi 5 it runs on a LAN or cloud host. Only
 the URL, model name, and credentials differ.
 
-For the full design, see [`ARCHITECTURE.md`](ARCHITECTURE.md),
-[`PROJECT_MISSION.md`](PROJECT_MISSION.md), and [`TASKS.md`](TASKS.md).
+For the full design, see [`ARCHITECTURE.md`](ARCHITECTURE.md) and
+[`PROJECT_MISSION.md`](PROJECT_MISSION.md).
 
 ## Requirements
 
