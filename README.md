@@ -141,7 +141,27 @@ Sparky app → 127.0.0.1:8080 → llama.cpp server
 
 ### Pi 5 client with a LAN server
 
-Run `llama.cpp` on the LAN host and point the Pi at it:
+On the LAN host, create an API-key file (one key per line; `#` starts a
+comment) and start the server with TLS:
+
+```bash
+mkdir -p ~/.config/sparky
+printf '%s\n' 'your-token' > ~/.config/sparky/llm-api-keys
+chmod 600 ~/.config/sparky/llm-api-keys
+
+LLAMA_ARG_HOST=0.0.0.0 \
+LLAMA_ARG_API_KEY_FILE="$HOME/.config/sparky/llm-api-keys" \
+LLAMA_ARG_SSL_CERT_FILE=/path/to/server.crt \
+LLAMA_ARG_SSL_KEY_FILE=/path/to/server.key \
+./scripts/start-llm-server.sh qwen35-2b
+```
+
+`llama.cpp` must be built with OpenSSL support (`-DLLAMA_OPENSSL=ON`) for the
+TLS flags to work. The launcher refuses a non-loopback bind unless it has a
+readable key file and a PEM cert/key pair; only the key-file path is passed to
+the server, so the key itself never appears in the process list.
+
+Then point the Pi at the server:
 
 ```bash
 export ROBOT_REMOTE_URL=https://llm-host.local:8080/v1
@@ -150,8 +170,9 @@ python offline_robot.py
 ```
 
 A non-loopback URL requires **HTTPS and an API key**; Sparky fails fast
-otherwise. For a self-signed certificate, install the CA on the client or
-terminate TLS at a reverse proxy. See `ARCHITECTURE.md` §10.
+otherwise. The client key must match one line in the server's key file. For a
+self-signed certificate, install the CA on the client or terminate TLS at a
+reverse proxy. See `ARCHITECTURE.md` §10.
 
 The Pi still downloads Whisper and Piper locally. It never loads the GGUF; the
 GGUF and mmproj belong to the server.

@@ -289,6 +289,14 @@ This is a first-class component, not a detail of the app.
   version supports it; CUDA offload all layers.
 - Do **not** bind to `0.0.0.0` on the Jetson. For a LAN server, require an API
   key and TLS.
+- `scripts/start-llm-server.sh` reads `LLAMA_ARG_HOST`, `LLAMA_ARG_PORT`,
+  `LLAMA_ARG_API_KEY_FILE`, `LLAMA_ARG_SSL_CERT_FILE`, and
+  `LLAMA_ARG_SSL_KEY_FILE`. It refuses a non-loopback bind unless a readable
+  API-key file and a PEM cert/key pair are supplied. The key file contains one
+  key per line (`#` comments); only its path is passed to `--api-key-file`, so
+  the secret never appears in argv. The client's `ROBOT_REMOTE_API_KEY` must
+  match one line in that file. TLS requires building llama.cpp with
+  `-DLLAMA_OPENSSL=ON`.
 
 ### 7.2 Optional server: Ollama
 - Convenient for development and LAN use; its `/v1` API is compatible.
