@@ -175,6 +175,7 @@ loopback, so "remote" does not imply off-device.
 | `ROBOT_REMOTE_TIMEOUT` | seconds | `60` | Per-request timeout |
 | `ROBOT_REMOTE_MAX_RETRIES` | int | `2` | Retries on transient failures |
 | `ROBOT_REMOTE_VERIFY_TLS` | bool | `true` | TLS certificate verification |
+| `ROBOT_REMOTE_CA_FILE` | path | — | PEM CA bundle for the LLM server (ignored when verification is disabled) |
 | `ROBOT_LLM_MAX_TOKENS` | int | `96` | Spoken reply cap |
 | `ROBOT_MEMORY_MAX_TURNS` | int | `8` | Conversation turns kept in RAM |
 | `ROBOT_VISION_MAX_TOKENS` | int | `256` | Vision reply cap |
@@ -190,9 +191,11 @@ Removed from app config (they now belong to the server, §7):
 - `ROBOT_REMOTE_MODEL` is required unless the client can auto-detect a single
   model from `/v1/models`.
 - A non-loopback `ROBOT_REMOTE_URL` requires an API key and HTTPS. For a
-  self-signed LAN certificate, install the CA on the client or terminate TLS at
-  a reverse proxy. Ollama's auth is limited, so prefer llama.cpp server when
-  binding beyond loopback.
+  self-signed LAN certificate, set `ROBOT_REMOTE_CA_FILE` to the server's CA
+  (or self-signed leaf certificate) PEM on the client; the app loads it
+  directly into its TLS context, so no OS-level CA install is needed.
+  Alternatively, terminate TLS at a reverse proxy. Ollama's auth is limited, so
+  prefer llama.cpp server when binding beyond loopback.
 - Secrets come from the environment and are never logged.
 - Invalid values fail fast at startup with a clear message.
 
@@ -381,9 +384,10 @@ an outage.
 
 - The server binds to loopback by default; non-loopback requires an API key and
   TLS with certificate verification.
-- For a self-signed LAN certificate, install the CA on the Pi or terminate TLS
-  at a reverse proxy. Ollama's auth is limited; prefer llama.cpp server for any
-  non-loopback bind.
+- For a self-signed LAN certificate, set `ROBOT_REMOTE_CA_FILE` on the client
+  (or terminate TLS at a reverse proxy). The CA file is a public path, not a
+  secret, and replaces the default trust store only for LLM requests.
+  Ollama's auth is limited; prefer llama.cpp server for any non-loopback bind.
 - A LAN server is the recommended remote target; cloud is opt-in and documented
   as sending audio/photo data off-device.
 - **Neither client nor server logs message content, images, or audio.** Log

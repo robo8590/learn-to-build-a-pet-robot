@@ -10,12 +10,11 @@ working chat *and* vision path against any server that implements
 from __future__ import annotations
 
 import json
-import ssl
 from typing import Iterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from sparky.config.runtime import RuntimeConfig, auth_headers
+from sparky.config.runtime import RuntimeConfig, auth_headers, tls_context
 from sparky.llm.backends.base import Capabilities, HealthStatus, LLMProvider
 
 _ERROR_BODY_CHARS = 200
@@ -38,10 +37,13 @@ class RemoteHTTPProvider(LLMProvider):
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         method = "GET" if payload is None else "POST"
         request = Request(url, data=data, headers=auth_headers(self.config), method=method)
-        context = None if self.config.verify_tls else ssl._create_unverified_context()
 
         try:
-            with urlopen(request, timeout=self.config.timeout, context=context) as response:
+            with urlopen(
+                request,
+                timeout=self.config.timeout,
+                context=tls_context(self.config),
+            ) as response:
                 body = response.read().decode("utf-8")
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:_ERROR_BODY_CHARS]

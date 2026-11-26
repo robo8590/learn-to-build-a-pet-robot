@@ -47,6 +47,7 @@ class RuntimeConfig:
     timeout: float = DEFAULT_TIMEOUT
     max_retries: int = DEFAULT_MAX_RETRIES
     verify_tls: bool = DEFAULT_VERIFY_TLS
+    ca_file: Optional[str] = None
     max_tokens: int = DEFAULT_MAX_TOKENS
     vision_max_tokens: int = DEFAULT_VISION_MAX_TOKENS
     memory_max_turns: int = DEFAULT_MEMORY_MAX_TURNS
@@ -58,6 +59,13 @@ class RuntimeConfig:
             object.__setattr__(self, "model", str(self.model).strip() or None)
         if self.api_key is not None:
             object.__setattr__(self, "api_key", str(self.api_key).strip() or None)
+        if self.ca_file is not None:
+            path = os.path.expanduser(str(self.ca_file).strip())
+            object.__setattr__(self, "ca_file", os.path.abspath(path))
+            if not os.path.isfile(self.ca_file) or not os.access(self.ca_file, os.R_OK):
+                raise ConfigError(
+                    f"ROBOT_REMOTE_CA_FILE is not a readable file: {self.ca_file}"
+                )
 
         if self.timeout <= 0:
             raise ConfigError("ROBOT_REMOTE_TIMEOUT must be greater than zero.")
@@ -182,11 +190,32 @@ def auth_headers(config: RuntimeConfig) -> dict[str, str]:
     return headers
 
 
+def tls_context(config: RuntimeConfig):
+    """TLS context for LLM requests.
+
+    ``None`` keeps urllib's verified default context, which reads the usual
+    OpenSSL trust store. An explicit CA file replaces that store for these
+    requests, so a self-signed LAN server can be trusted without installing its
+    certificate system-wide. When verification is disabled, the CA file is
+    ignored.
+    """
+    if not config.verify_tls:
+        return ssl._create_unverified_context()
+    if config.ca_file:
+        try:
+            return ssl.create_default_context(cafile=config.ca_file)
+        except (OSError, ssl.SSLError) as exc:
+            raise ConfigError(
+                f"ROBOT_REMOTE_CA_FILE could not be loaded as a PEM CA bundle: "
+                f"{config.ca_file}"
+            ) from exc
+    return None
+
+
 def fetch_model_ids(config: RuntimeConfig) -> list[str]:
     """Read the model ids advertised at ``GET {url}/models`` (OpenAI shape)."""
     request = Request(f"{config.url}/models", headers=auth_headers(config))
-    context = None if config.verify_tls else ssl._create_unverified_context()
-    with urlopen(request, timeout=config.timeout, context=context) as response:
+    with urlopen(request, timeout=config.timeout, context=tls_context(config)) as response:
         payload = json.load(response)
     ids = []
     for item in payload.get("data", []):
@@ -245,6 +274,7 @@ def resolve_runtime_config(
         verify_tls=pick(
             "remote_verify_tls", "ROBOT_REMOTE_VERIFY_TLS", _parse_bool, DEFAULT_VERIFY_TLS
         ),
+        ca_file=pick("remote_ca_file", "ROBOT_REMOTE_CA_FILE", _parse_text, None),
         max_tokens=pick("max_tokens", "ROBOT_LLM_MAX_TOKENS", _parse_int, DEFAULT_MAX_TOKENS),
         vision_max_tokens=pick(
             "vision_max_tokens", "ROBOT_VISION_MAX_TOKENS", _parse_int, DEFAULT_VISION_MAX_TOKENS

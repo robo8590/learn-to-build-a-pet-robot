@@ -70,6 +70,12 @@ def parse_args(argv=None):
         help="Disable TLS certificate verification (not recommended off loopback).",
     )
     parser.add_argument(
+        "--remote-ca-file",
+        dest="remote_ca_file",
+        metavar="PATH",
+        help="PEM CA bundle for the LLM server (overrides ROBOT_REMOTE_CA_FILE).",
+    )
+    parser.add_argument(
         "--list-models",
         action="store_true",
         help="List available LLM models and exit.",

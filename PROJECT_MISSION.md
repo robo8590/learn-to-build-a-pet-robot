@@ -89,8 +89,9 @@ Shared requirements and decisions:
 - **Network (Pi deployment)**: wired Ethernet or strong Wi-Fi; the server is
   on the critical path. The server binds to loopback on the Jetson; any
   non-loopback bind requires an API key and TLS. For a self-signed LAN
-  certificate, install the CA on the client or terminate TLS at a reverse
-  proxy. Ollama's auth is limited, so prefer llama.cpp server beyond loopback.
+  certificate, set `ROBOT_REMOTE_CA_FILE` on the client or terminate TLS at a
+  reverse proxy. Ollama's auth is limited, so prefer llama.cpp server beyond
+  loopback.
 - **Cooling**: active cooling for sustained inference.
 - **Audio**: USB microphone and USB speaker/sound card.
 - **Camera**: CSI camera via `picamera2` on the Pi (OpenCV/V4L2 fallback).

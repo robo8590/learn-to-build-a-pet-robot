@@ -171,8 +171,20 @@ python offline_robot.py
 
 A non-loopback URL requires **HTTPS and an API key**; Sparky fails fast
 otherwise. The client key must match one line in the server's key file. For a
-self-signed certificate, install the CA on the client or terminate TLS at a
-reverse proxy. See `ARCHITECTURE.md` §10.
+self-signed LAN certificate, copy the server's CA (or its self-signed leaf
+certificate) to the client and point Sparky at it — no OS-level or
+Python-level CA install is needed:
+
+```bash
+scp <user>@llm-host.local:/path/to/server-ca.pem ~/robot-ca.pem
+export ROBOT_REMOTE_CA_FILE=~/robot-ca.pem    # or --remote-ca-file
+```
+
+Only the certificate is needed, never the private key. The file replaces the
+default CA store for Sparky's LLM requests, so concatenate the system bundle
+if other HTTPS traffic in the same process must keep working. Alternatively,
+terminate TLS at a reverse proxy with a publicly trusted certificate. See
+`ARCHITECTURE.md` §10.
 
 The Pi still downloads Whisper and Piper locally. It never loads the GGUF; the
 GGUF and mmproj belong to the server.
@@ -214,6 +226,7 @@ Precedence is **CLI flag → environment variable → default**.
 | `ROBOT_REMOTE_TIMEOUT` | `--remote-timeout` | `60` | Request timeout (seconds) |
 | `ROBOT_REMOTE_MAX_RETRIES` | `--remote-max-retries` | `2` | Retry count (reserved; retries are not implemented yet) |
 | `ROBOT_REMOTE_VERIFY_TLS` | `--remote-verify-tls` / `--no-remote-verify-tls` | `true` | Verify TLS certificates |
+| `ROBOT_REMOTE_CA_FILE` | `--remote-ca-file` | — | PEM CA bundle for the LLM server; ignored if verification is disabled |
 | `ROBOT_LLM_MAX_TOKENS` | — | `96` | Spoken reply cap |
 | `ROBOT_VISION_MAX_TOKENS` | — | `256` | Vision reply cap |
 | `ROBOT_MEMORY_MAX_TURNS` | — | `8` | Conversation turns kept in RAM |
@@ -266,7 +279,7 @@ Without permission, Sparky says *"I couldn't take a photo right now."*
 | `--check-vision` fails | Server offline, model is text-only, or the mmproj is missing on the server. |
 | `port 8080 already in use` | Stop the old server or change `PORT` in `scripts/start-llm-server.sh`. |
 | `--list-models` shows "not downloaded" | That is local inventory; it does not mean the server lacks the model. |
-| TLS certificate error | Install the server's CA on the client, or use a reverse proxy with a trusted certificate. |
+| TLS certificate error | Set `ROBOT_REMOTE_CA_FILE` to the server's CA PEM (or self-signed leaf certificate), or use a reverse proxy with a trusted certificate. |
 
 ## Project layout
 

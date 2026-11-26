@@ -1,12 +1,18 @@
+import os
+import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from sparky.cli import parse_args
 from sparky.config.runtime import (
     DEFAULT_REMOTE_URL,
     ConfigError,
     RuntimeConfig,
     auth_headers,
+    fetch_model_ids,
     resolve_runtime_config,
+    tls_context,
 )
 
 BASE_ENV = {"ROBOT_REMOTE_MODEL": "model-a"}
@@ -31,6 +37,7 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(config.timeout, 60.0)
         self.assertEqual(config.max_retries, 2)
         self.assertTrue(config.verify_tls)
+        self.assertIsNone(config.ca_file)
         self.assertEqual(config.max_tokens, 96)
         self.assertEqual(config.vision_max_tokens, 256)
         self.assertEqual(config.memory_max_turns, 8)
@@ -178,6 +185,96 @@ class RuntimeConfigTests(unittest.TestCase):
     def test_direct_construction_is_validated(self):
         with self.assertRaises(ConfigError):
             RuntimeConfig(url=DEFAULT_REMOTE_URL, timeout=0)
+
+
+class RuntimeCAFileTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.ca_path = os.path.join(temporary.name, "ca.pem")
+        self.other_path = os.path.join(temporary.name, "other.pem")
+        for path in (self.ca_path, self.other_path):
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("certificate placeholder")
+
+    def test_ca_file_env_and_cli_precedence(self):
+        config = resolve(env={"ROBOT_REMOTE_CA_FILE": self.ca_path})
+        self.assertEqual(config.ca_file, self.ca_path)
+
+        config = resolve(
+            cli=SimpleNamespace(remote_ca_file=self.other_path),
+            env={"ROBOT_REMOTE_CA_FILE": self.ca_path},
+        )
+        self.assertEqual(config.ca_file, self.other_path)
+
+        config = resolve(
+            cli=SimpleNamespace(remote_ca_file="  "),
+            env={"ROBOT_REMOTE_CA_FILE": self.ca_path},
+        )
+        self.assertEqual(config.ca_file, self.ca_path)
+
+    def test_ca_file_expands_user(self):
+        with patch("sparky.config.runtime.os.path.expanduser", return_value=self.ca_path):
+            config = resolve(env={"ROBOT_REMOTE_CA_FILE": "~/ca.pem"})
+        self.assertEqual(config.ca_file, os.path.abspath(self.ca_path))
+
+    def test_missing_ca_file_fails_fast(self):
+        missing = os.path.join(os.path.dirname(self.ca_path), "missing.pem")
+        with self.assertRaisesRegex(ConfigError, "ROBOT_REMOTE_CA_FILE"):
+            resolve(env={"ROBOT_REMOTE_CA_FILE": missing})
+
+    def test_empty_ca_file_is_ignored(self):
+        self.assertIsNone(resolve(env={"ROBOT_REMOTE_CA_FILE": "  "}).ca_file)
+
+    def test_ca_file_flag_is_wired(self):
+        args = parse_args(["--remote-ca-file", self.ca_path])
+        self.assertEqual(resolve(cli=args).ca_file, self.ca_path)
+
+    def test_redacted_keeps_path_but_masks_key(self):
+        config = resolve(
+            env={
+                "ROBOT_REMOTE_CA_FILE": self.ca_path,
+                "ROBOT_REMOTE_API_KEY": "super-secret",
+            }
+        )
+        view = config.redacted()
+        self.assertEqual(view["ca_file"], self.ca_path)
+        self.assertEqual(view["api_key"], "***")
+        self.assertNotIn("super-secret", str(view))
+
+    def test_tls_context_default(self):
+        self.assertIsNone(tls_context(resolve()))
+
+    def test_tls_context_uses_ca_file(self):
+        config = resolve(env={"ROBOT_REMOTE_CA_FILE": self.ca_path})
+        with patch("sparky.config.runtime.ssl.create_default_context") as create:
+            context = tls_context(config)
+        create.assert_called_once_with(cafile=self.ca_path)
+        self.assertIs(context, create.return_value)
+
+    def test_tls_context_unverified_ignores_ca_file(self):
+        config = resolve(
+            cli=SimpleNamespace(remote_verify_tls=False),
+            env={"ROBOT_REMOTE_CA_FILE": self.ca_path},
+        )
+        with patch("sparky.config.runtime.ssl._create_unverified_context") as unverified:
+            with patch("sparky.config.runtime.ssl.create_default_context") as create:
+                context = tls_context(config)
+        self.assertIs(context, unverified.return_value)
+        create.assert_not_called()
+
+    def test_fetch_model_ids_uses_configured_context(self):
+        config = resolve(env={"ROBOT_REMOTE_CA_FILE": self.ca_path})
+        sentinel = object()
+        with patch("sparky.config.runtime.tls_context", return_value=sentinel) as context_fn:
+            with patch("sparky.config.runtime.urlopen") as urlopen:
+                urlopen.return_value.__enter__.return_value.read.return_value = (
+                    b'{"data": [{"id": "only-model"}]}'
+                )
+                ids = fetch_model_ids(config)
+        self.assertEqual(ids, ["only-model"])
+        context_fn.assert_called_once_with(config)
+        self.assertIs(urlopen.call_args.kwargs["context"], sentinel)
 
 
 if __name__ == "__main__":
